@@ -10,6 +10,6 @@ Ad egy mondatot a korpusz, az embernek és a BERT-nek is egy-egy tippje van. Ros
 
 ### Használat
 
-`python guessing_game_simple.py`
+`python guessing_game.py`
 
 Alapértelemezetten 5 játékot bonyolít le.
