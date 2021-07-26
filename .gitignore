@@ -1,3 +1,10 @@
+# Custom files for this repo
+
+corp.txt
+corp_tok.spl
+corp_tok.tsv
+flaskapp.py
+
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[cod]
