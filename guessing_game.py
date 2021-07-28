@@ -4,9 +4,10 @@ import csv
 import random
 import torch
 import torch.nn.functional as F
-from typing import Generator, List, Iterable
+from typing import Generator, List, Iterable, Set, Tuple
 from collections import defaultdict
 from itertools import product
+
 
 
 # suppress warning, only complain when halting
@@ -49,6 +50,12 @@ def create_aligned_text(sentences: List[str]) -> List[str]:
     return [' ' * (zero_point - position) + sentence for position, sentence in zip(hashmark_positions, sentences)]
 
 
+def increment_list_index(lst: list, index) -> list:
+    new_lst = lst.copy()
+    new_lst[index] += 1
+    return new_lst
+
+
 class Game:
     # put them into class variable so in case of a REST API, multiple games can share the memory-hungry model
     tokenizer = transformers.AutoTokenizer.from_pretrained('SZTAKI-HLT/hubert-base-cc', lowercase=True)
@@ -76,6 +83,9 @@ class Game:
                 self.starting_words_by_length[len(word)][id_] = word
             else:
                 continue
+
+        self.starting_words = {id_: word for word, id_ in self.tokenizer.vocab.items() if word.isalpha()}
+        self.center_words = {id_: word for word, id_ in self.tokenizer.vocab.items() if word[0:2] == '##'}
 
 
     @staticmethod
@@ -180,19 +190,62 @@ class Game:
 
     def make_multi_guess(self, softmax_tensors: List[torch.Tensor], word_length: int,
                          previous_guesses: Iterable, retry_wrong: bool = False,
-                         number_of_subwords: int = None) -> List[List[str]]:
+                         number_of_subwords: int = None, num_guesses: int = 10) -> List[List[str]]:
 
         probability_tensor = torch.stack(softmax_tensors, dim=2)
         joint_probabilities = torch.prod(probability_tensor, dim=2)
 
-        length_combinations = self.knapsack_length(total_length=word_length, number_of_subwords=number_of_subwords)
+        # length_combinations = self.knapsack_length(total_length=word_length, number_of_subwords=number_of_subwords)
 
-        multiwords = self.iterate_multiwords(length_combinations)
+        guess_iterator = self.softmax_iterator(joint_probabilities, target_word_length=word_length)
+        guesses = []
+        for guess in enumerate(guess_iterator):
+            if guess in previous_guesses:
+                continue
+            else:
+                guesses.append(guess)
+            if len(guesses) >= num_guesses:
+                break
 
-        # This approach will not work since multiwords grows exponentially
-        # But in case of multiple guesses, we can iterate on the elementwise product of SUBWORD * 32000 size tensor
-        # and check for lengths. It will find a candidate quick - perhaps.
-        return [['alma', 'alma'], ['korte', 'korte']]
+        return guesses
+
+    def softmax_iterator(self, joint_probabilities: torch.Tensor, target_word_length: int) -> str:
+
+        """
+        Yields a valid guess (regardless of the previous guesses) by taking the joint probabilities and
+        iterating over them in decreasing order.
+        :param joint_probabilities: Tensor containing joint probabilities
+        :param target_word_length: Length of target word.
+        :return: A guess with correct length.
+        """
+
+        dims = range(joint_probabilities.shape[0])  # we create the dimensions range to select
+        order = torch.argsort(joint_probabilities, dim=1, descending=True)
+        idx = order[:, 0]  # this is the first guess
+        top_pairs = [[0 for _ in idx]]  # in relation to argsort
+        while True:
+            # primitive algorithm to create a decreasing order of products. Is not perfect, we should really change the
+            # algo here.
+            # also, we should maybe treat the missing guesses here?
+            candidates = [increment_list_index(top_pairs[-1], dim) for dim in dims]
+            candidate_values = [torch.prod(joint_probabilities[dims, order[dims, candidate]]) for candidate in candidates]
+            best_candidate = torch.argmax(torch.Tensor(candidate_values))
+            top_pairs.append(candidates[best_candidate])
+            idx = order[dims, top_pairs[-1]]  # idx contains the next guess
+
+            # we check the length requirements and whether the composition is good
+            if int(idx[0]) not in self.starting_words:
+                continue
+            if len(idx) > 1:
+                if any([int(id_) not in self.center_words for id_ in idx[1:]]):
+                    continue
+            word = self.tokenizer.decode(idx)
+            if len(word) == target_word_length:
+                yield word
+
+
+
+
 
     def iterate_multiwords(self, length_combinations: List[List[int]]):
 
@@ -210,7 +263,7 @@ class Game:
 
         return retval
 
-    def knapsack_length(self, total_length: int, number_of_subwords: int) -> List[List[int]]:
+    def knapsack_length(self, total_length: int, number_of_subwords: int) -> Set[Tuple[int]]:
         """
         Calculates possible lengths for a given length of word. E.g. if the word is made of 10 chars and 2 subwords,
         it returns a the list [1,9], [2, 8] etc.
@@ -222,7 +275,7 @@ class Game:
         for _ in range(number_of_subwords - 1):
             combinations.append(sorted(self.center_words_by_length.keys()))
 
-        possible_combinations = [c for c in product(*combinations) if sum(c) == total_length]
+        possible_combinations = {tuple(c) for c in product(*combinations) if sum(c) == total_length}
 
         return possible_combinations
 
