@@ -1,14 +1,12 @@
+import os
+
 import transformers
 from collections import Counter
 import csv
 import random
 import torch
 import torch.nn.functional as F
-from typing import Generator, List, Iterable, Set, Tuple
-from collections import defaultdict
-from itertools import product
-
-
+from typing import Generator, List, Iterable
 
 # suppress warning, only complain when halting
 # transformers.logging.set_verbosity_error()
@@ -56,37 +54,51 @@ def increment_list_index(lst: list, index) -> list:
     return new_lst
 
 
-class Game:
-    # put them into class variable so in case of a REST API, multiple games can share the memory-hungry model
-    tokenizer = transformers.AutoTokenizer.from_pretrained('SZTAKI-HLT/hubert-base-cc', lowercase=True)
-    model = transformers.BertForMaskedLM.from_pretrained('SZTAKI-HLT/hubert-base-cc', return_dict=True)
+def traverse_dims(lst: list, max_id: int) -> List[List]:
+    candidates = []
+    for i, elem in enumerate(lst):
+        if elem < max_id:
+            candidates.append(increment_list_index(lst, i))
+        else:
+            continue
 
-    def __init__(self, freqs_fn: str, corp_fn: str):
+    return candidates
+
+
+class Game:
+    if 'models' in os.listdir('./'):
+        tokenizer = transformers.AutoTokenizer.from_pretrained('models/hubert-base-cc', lowercase=True)
+        model = transformers.BertForMaskedLM.from_pretrained('models/hubert-base-cc', return_dict=True)
+    else:
+        # if used with the online model, it will only start if internet is available due to checking the online cache
+        # for a new model
+        tokenizer = transformers.AutoTokenizer.from_pretrained('SZTAKI-HLT/hubert-base-cc', lowercase=True)
+        model = transformers.BertForMaskedLM.from_pretrained('SZTAKI-HLT/hubert-base-cc', return_dict=True)
+        os.mkdir('models')
+        tokenizer.save_pretrained('models/hubert-base-cc')
+        model.save_pretrained('models/hubert-base-cc')
+
+    def __init__(self, freqs_fn: str, corp_fn: str, word_list_fn: str):
         """
 
-        :param freqs_fn:
-        :param corp_fn:
+        :param freqs_fn: Word frequencies to choose.
+        :param corp_fn: Corpus in SPL format.
+        :param word_list_fn: File containing one word per line.
         :return:
         """
         self.counter = self.create_counter(filename=freqs_fn)
         self.corp_fn = corp_fn
+        self.vocabulary = set()
+
+        with open(word_list_fn) as infile:
+            for line in infile:
+                self.vocabulary.add(line.strip().lower())
 
         # we create word lists for the starting/middle subwords
         # now we have to filter based on length
-        self.starting_words_by_length = defaultdict(lambda: defaultdict(dict))
-        self.center_words_by_length = defaultdict(lambda: defaultdict(dict))
-
-        for word, id_ in self.tokenizer.vocab.items():
-            if word[0:2] == '##':
-                self.center_words_by_length[len(word)-2][id_] = word[2:]
-            elif word.isalpha():
-                self.starting_words_by_length[len(word)][id_] = word
-            else:
-                continue
 
         self.starting_words = {id_: word for word, id_ in self.tokenizer.vocab.items() if word.isalpha()}
         self.center_words = {id_: word for word, id_ in self.tokenizer.vocab.items() if word[0:2] == '##'}
-
 
     @staticmethod
     def create_counter(filename: str, min_threshold: int = 30) -> Counter:
@@ -188,9 +200,32 @@ class Game:
         probability_vector = softmax[0, mask_index[0], :]  # this is the probability vector for the masked WP's position
         return probability_vector
 
+    def calculate_softmax_from_context(self, contexts: List[List[str]], number_of_subwords: int) -> List[torch.Tensor]:
+        """
+        Calculates the softmax tensors for a given lsit of contexts.
+        :param contexts:
+        :param number_of_subwords:
+        :return:
+        """
+
+        for context in contexts:
+            assert len(context) % 2 == 0, 'Context should be of even length.'
+
+        softmax_tensors = []
+
+        for context in contexts:
+            unk_context = context[:len(context)//2]
+            unk_context += [self.tokenizer.mask_token for _ in range(number_of_subwords)]
+            unk_context += context[len(context)//2:]
+            bert_context = self.tokenizer(unk_context)['input_ids']
+            softmax = self.get_multi_probabilities(self.tokenizer.decode(bert_context))
+            softmax_tensors.append(softmax)
+
+        return softmax_tensors
+
     def make_multi_guess(self, softmax_tensors: List[torch.Tensor], word_length: int,
                          previous_guesses: Iterable, retry_wrong: bool = False,
-                         number_of_subwords: int = None, num_guesses: int = 10) -> List[List[str]]:
+                         number_of_subwords: int = None, num_guesses: int = 10) -> List[str]:
 
         probability_tensor = torch.stack(softmax_tensors, dim=2)
         joint_probabilities = torch.prod(probability_tensor, dim=2)
@@ -199,11 +234,14 @@ class Game:
 
         guess_iterator = self.softmax_iterator(joint_probabilities, target_word_length=word_length)
         guesses = []
-        for guess in enumerate(guess_iterator):
-            if guess in previous_guesses:
-                continue
-            else:
+        for _, guess in enumerate(guess_iterator):
+            if retry_wrong:
                 guesses.append(guess)
+            else:
+                if guess in previous_guesses:
+                    continue
+                else:
+                    guesses.append(guess)
             if len(guesses) >= num_guesses:
                 break
 
@@ -213,71 +251,63 @@ class Game:
 
         """
         Yields a valid guess (regardless of the previous guesses) by taking the joint probabilities and
-        iterating over them in decreasing order.
+        iterating over them in decreasing order of probability.
+        primitive algorithm to create a decreasing order of products. It is not perfect.
+        Basically, we have a len(dims) number of vectors, and we have to "sort" the product of Descartes-product
+        of these len(dims) number of vectors, each 32k long. Also, we can't calculate the product because of
+        the exponential problem.
+        So we take the biggest product, and in each step, we step into all the directions (by taking the next
+        largest), and out of the candidates, we take the largest one. In the next step, that is the 'biggest'
+        and we continue so on.
         :param joint_probabilities: Tensor containing joint probabilities
         :param target_word_length: Length of target word.
-        :return: A guess with correct length.
+        :return: A guess with correct length and affixiation.
         """
 
         dims = range(joint_probabilities.shape[0])  # we create the dimensions range to select
         order = torch.argsort(joint_probabilities, dim=1, descending=True)
         idx = order[:, 0]  # this is the first guess
-        top_pairs = [[0 for _ in idx]]  # in relation to argsort
-        while True:
-            # primitive algorithm to create a decreasing order of products. Is not perfect, we should really change the
-            # algo here.
-            # also, we should maybe treat the missing guesses here?
-            candidates = [increment_list_index(top_pairs[-1], dim) for dim in dims]
-            candidate_values = [torch.prod(joint_probabilities[dims, order[dims, candidate]]) for candidate in candidates]
-            best_candidate = torch.argmax(torch.Tensor(candidate_values))
-            top_pairs.append(candidates[best_candidate])
-            idx = order[dims, top_pairs[-1]]  # idx contains the next guess
 
-            # we check the length requirements and whether the composition is good
-            if int(idx[0]) not in self.starting_words:
-                continue
-            if len(idx) > 1:
-                if any([int(id_) not in self.center_words for id_ in idx[1:]]):
-                    continue
+        if self.check_validity(idx):
             word = self.tokenizer.decode(idx)
             if len(word) == target_word_length:
                 yield word
 
+        top_pairs = [[0 for _ in idx]]  # in relation to argsort
+        while True:
+            candidates = traverse_dims(top_pairs[-1], max_id=len(self.tokenizer.vocab))
+            if len(candidates) == 0:
+                break
+            # candidates = [increment_list_index(top_pairs[-1], dim) for dim in dims]
+            candidate_values = [torch.prod(joint_probabilities[dims, order[dims, candidate]]) for candidate in candidates]
+            best_candidate = torch.argmax(torch.Tensor(candidate_values))
+            top_pairs.append(candidates[best_candidate])
+            idx = order[dims, top_pairs[-1]]  # idx contains the next guess
+            # we check the composition
+            if not self.check_validity(idx):
+                continue
+            # we check the length requirements and whether the composition is good
+            word = self.tokenizer.decode(idx)
+            if len(word) == target_word_length:
+                yield word
 
-
-
-
-    def iterate_multiwords(self, length_combinations: List[List[int]]):
-
-        retval = []
-        for combination in length_combinations: # first is the length of the starting word, the rest are the rest
-            for starting_word_id in self.starting_words_by_length[combination[0]]:
-                center_lengths = combination[1:]
-                if len(center_lengths) == 0:
-                    retval.append((starting_word_id,))
-                    continue
-                else:
-                    center_iterator = [sorted(self.center_words_by_length[length].keys()) for length in center_lengths]
-                for multiword_idx in product(*center_iterator):
-                    retval.append((starting_word_id, *multiword_idx))
-
-        return retval
-
-    def knapsack_length(self, total_length: int, number_of_subwords: int) -> Set[Tuple[int]]:
+    def check_validity(self, idx: List[int]) -> bool:
         """
-        Calculates possible lengths for a given length of word. E.g. if the word is made of 10 chars and 2 subwords,
-        it returns a the list [1,9], [2, 8] etc.
-        :param total_length:
-        :param number_of_subwords:
-        :return:
+        Checks validity:
+        first should be a root-type (not starting with #), the others should be suffixes (starting with ##)
+        And the word should be in the dictionary
+        :param idx: iterable with integers
+        :return: whether word is valid or not
         """
-        combinations = [sorted(self.starting_words_by_length.keys())]
-        for _ in range(number_of_subwords - 1):
-            combinations.append(sorted(self.center_words_by_length.keys()))
-
-        possible_combinations = {tuple(c) for c in product(*combinations) if sum(c) == total_length}
-
-        return possible_combinations
+        if int(idx[0]) not in self.starting_words:
+            return False
+        if len(idx) > 1:
+            if any(int(id_) not in self.center_words for id_ in idx[1:]):
+                return False
+        word = self.tokenizer.decode([idx])
+        if word not in self.vocabulary:
+            return False
+        return True
 
     def make_guess(self, softmax_tensors: List[torch.Tensor], word_length: int,
                    previous_guesses: Iterable[str], retry_wrong: bool = False) -> List[str]:
@@ -301,21 +331,6 @@ class Game:
             return [word for word in top_n if word not in previous_guesses]
         else:
             return top_n
-
-    def make_turn(self, selected_wordid: int, user_guessed: bool, bert_guessed: bool, previous_guesses: Iterable[str],
-                  previous_sentences: Iterable[str], softmax_tensors: List[List[float]]):
-        """
-        Stateless turn-maker for the REST API. WIP.
-        :param selected_wordid:
-        :param user_guessed:
-        :param bert_guessed:
-        :param previous_guesses:
-        :param previous_sentences:
-        :param softmax_tensors:
-        :return:
-        """
-
-        selected_word = self.tokenizer.decode([selected_wordid])
 
     def guessing_game(self, show_bert_output: bool = True, full_sentence: bool = False) -> List:
         """
@@ -372,11 +387,13 @@ class Game:
                 if user_input.strip() == selected_word:
                     user_guessed = True
                     retval[0] = i + 1
+                elif user_input.strip() == '':
+                    user_guessed = True
 
             print(f'BERT\'s guess is {bert_guesses[0]}')
 
             if show_bert_output:
-                print(f'BERT\'s top 5 guesses: {" ".join(bert_guesses[:5])}')
+                print(f'BERT\'s top 5 guesses: {" ".join(bert_guesses[:10])}')
             guess = bert_guesses[0]
 
             if not bert_guessed:
@@ -395,6 +412,6 @@ class Game:
 
 
 if __name__ == '__main__':
-    game = Game('freqs.csv', 'tokenized_100k_corp.spl')
-    game_lengths = [game.guessing_game(show_bert_output=False, full_sentence=False) for i in range(5)]
+    game = Game('freqs.csv', 'tokenized_100k_corp.spl', 'wordlist_3M.csv')
+    game_lengths = [game.guessing_game(show_bert_output=True, full_sentence=False) for i in range(5)]
     print(game_lengths)
