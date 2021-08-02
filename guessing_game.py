@@ -1,3 +1,4 @@
+import math
 import os
 
 import transformers
@@ -7,6 +8,13 @@ import random
 import torch
 import torch.nn.functional as F
 from typing import Generator, List, Iterable
+import pickle
+
+from pygments.lexer import words
+
+from utils.trie import Trie, TrieNode
+import numpy as np
+
 
 # suppress warning, only complain when halting
 # transformers.logging.set_verbosity_error()
@@ -42,6 +50,16 @@ def create_corpora():
             csv_writer.writerow([word, freq])
 
 
+def tokenize_wpl_file(infilename: str, outfilename: str):
+    tokenizer = transformers.AutoTokenizer.from_pretrained('models/hubert-base-cc', lowercase=True)
+
+    with open(infilename) as infile, open(outfilename, 'w') as outfile:
+        csv_writer = csv.writer(outfile)
+        for line in infile:
+            input_ids = tokenizer(line, add_special_tokens=False)['input_ids']
+            csv_writer.writerow([line.strip(), ' '.join(map(str, input_ids))])
+
+
 def create_aligned_text(sentences: List[str]) -> List[str]:
     hashmark_positions = [sen.find('#') for sen in sentences]
     zero_point = max(hashmark_positions)
@@ -62,6 +80,16 @@ def traverse_dims(lst: list, max_id: int) -> List[List]:
         else:
             continue
 
+    return candidates
+
+
+def traverse_restricted(lst: list, max_ids: List[int]) -> List[List]:
+    candidates = []
+    for i, elem in enumerate(lst):
+        if elem < max_ids[i]:
+            candidates.append(increment_list_index(lst, i))
+        else:
+            continue
     return candidates
 
 
@@ -89,6 +117,8 @@ class Game:
         self.counter = self.create_counter(filename=freqs_fn)
         self.corp_fn = corp_fn
         self.vocabulary = set()
+        with open('models/trie_words.pickle', 'rb') as infile:
+            self.word_trie: Trie = pickle.load(infile)
 
         with open(word_list_fn) as infile:
             for line in infile:
@@ -247,7 +277,7 @@ class Game:
 
         return guesses
 
-    def softmax_iterator(self, joint_probabilities: torch.Tensor, target_word_length: int) -> str:
+    def softmax_iterator(self, probability_tensor: torch.Tensor, target_word_length: int) -> str:
 
         """
         Yields a valid guess (regardless of the previous guesses) by taking the joint probabilities and
@@ -259,22 +289,85 @@ class Game:
         So we take the biggest product, and in each step, we step into all the directions (by taking the next
         largest), and out of the candidates, we take the largest one. In the next step, that is the 'biggest'
         and we continue so on.
-        :param joint_probabilities: Tensor containing joint probabilities
+        :param probability_tensor: Tensor containing joint probabilities
         :param target_word_length: Length of target word.
         :return: A guess with correct length and affixiation.
         """
 
-        dims = range(joint_probabilities.shape[0])  # we create the dimensions range to select
-        order = torch.argsort(joint_probabilities, dim=1, descending=True)
-        idx = order[:, 0]  # this is the first guess
+        dims = range(probability_tensor.shape[0])
+        length_subwords = probability_tensor.shape[0]
+        probabilities = probability_tensor.detach().numpy()
+        candidates = []
+        for word_id in self.starting_words:
+            current_candidates = [can for can, _ in self.word_trie.query_fixed_depth([word_id], length_subwords)]
+            candidates += current_candidates
 
-        if self.check_validity(idx):
-            word = self.tokenizer.decode(idx)
+        word_probabilities = np.prod(np.take(probabilities, candidates), axis=1).flatten()
+        argsorted_probabilities = np.argsort(-word_probabilities)
+        # best_candidates = []
+        for idx in argsorted_probabilities:
+            candidate = candidates[idx]
+            word = self.tokenizer.decode(candidate)
             if len(word) == target_word_length:
                 yield word
 
-        top_pairs = [[0 for _ in idx]]  # in relation to argsort
+
+    def legacy_softmax(self, joint_probabilities, target_word_length):
+
+        # we create the dimensions range to select
+        restricted_joint_probs = []
+        for subword_pos, vector in enumerate(joint_probabilities.tolist()):
+            restricted_vector = []
+            for i, prob in enumerate(vector):
+                if subword_pos == 0:  # word initial position
+                    if i in self.starting_words:
+                        restricted_vector.append((i, prob))
+                else:
+                    if i in self.center_words:
+                        restricted_vector.append((i, prob))
+            restricted_joint_probs.append(restricted_vector)
+
+        # restricted_joint_probs = [[num for i, num in enumerate(vector) if i in ] for vector in joint_probabilities.tolist()]
+        # joint_probs is SW by vocabulary
+
+        order_new = [sorted(vec, key=lambda x: x[1], reverse=True) for vec in restricted_joint_probs]
+        max_ids = [len(vec)-1 for vec in restricted_joint_probs]
+
+        order = torch.argsort(joint_probabilities, dim=1, descending=True)
+        # we have to filter the invalid subwords here in order to gain some needed speed
+        idx = order[:, 0]  # this is the first guess
+        idx_new = [vec[0][0] for vec in order_new]
+
+        word = self.tokenizer.decode(idx_new)
+        if word in self.vocabulary and len(word) == target_word_length:
+            yield word
+
+        top_pairs_new = [[0 for _ in idx_new]]  # this is relative to idx_new
+
         while True:
+            candidates = traverse_restricted(top_pairs_new[-1], max_ids=max_ids)
+            if len(candidates) == 0:
+                break
+            candidate_values = [math.prod([order_new[dim_id][word_rel_id][1] for dim_id, word_rel_id
+                                           in enumerate(candidate)]) for candidate in candidates]
+
+            best_candidate = max(((i, val) for i, val in enumerate(candidate_values)), key=lambda x: x[1])[0]
+            top_pairs_new.append(candidates[best_candidate])
+            idx_new = [vec[word_rel_id][0] for word_rel_id, vec in zip(top_pairs_new[-1], order_new)]
+
+            word = self.tokenizer.decode(idx_new)
+            if word in self.vocabulary and len(word) == target_word_length:
+                yield word
+
+        # if self.check_validity(idx):
+        #     word = self.tokenizer.decode(idx)
+        #     if len(word) == target_word_length:
+        #         yield word
+
+        top_pairs = [[0 for _ in idx]]  # in relation to argsort
+
+        false = False
+        while false:
             candidates = traverse_dims(top_pairs[-1], max_id=len(self.tokenizer.vocab))
             if len(candidates) == 0:
                 break
@@ -304,7 +397,7 @@ class Game:
         if len(idx) > 1:
             if any(int(id_) not in self.center_words for id_ in idx[1:]):
                 return False
-        word = self.tokenizer.decode([idx])
+        word = self.tokenizer.decode(idx)
         if word not in self.vocabulary:
             return False
         return True
@@ -357,7 +450,6 @@ class Game:
             masked_sentence = bert_sentence.copy()
             for wordid in selected_wordids['input_ids']:
                 masked_sentence[masked_sentence.index(wordid)] = self.tokenizer.mask_token_id
-
             # for multi-word prediction, the next step is to create a function which constructs whole words with a
             # given length
             # we have to iterate over the Descartes-product of the softmaxes, with some conditions:
@@ -390,11 +482,12 @@ class Game:
                 elif user_input.strip() == '':
                     user_guessed = True
 
-            print(f'BERT\'s guess is {bert_guesses[0]}')
+            print(f'BERT\'s guess is {bert_guesses[:1]}')
 
             if show_bert_output:
                 print(f'BERT\'s top 5 guesses: {" ".join(bert_guesses[:10])}')
-            guess = bert_guesses[0]
+
+            guess = bert_guesses[0] if len(bert_guesses) > 0 else ''
 
             if not bert_guessed:
                 if guess == selected_word:
