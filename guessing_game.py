@@ -101,7 +101,7 @@ class Game:
         tokenizer.save_pretrained('models/hubert-base-cc')
         model.save_pretrained('models/hubert-base-cc')
 
-    def __init__(self, freqs_fn: str, corp_fn: str, word_list_fn: str):
+    def __init__(self, freqs_fn: str, corp_fn: str, word_list_fn: str, trie_fn: str = 'models/trie_words.pickle'):
         """
 
         :param freqs_fn: Word frequencies to choose.
@@ -111,16 +111,25 @@ class Game:
         """
         self.counter = self.create_counter(filename=freqs_fn)
         self.corp_fn = corp_fn
-        self.vocabulary = set()
-        with open('models/trie_words.pickle', 'rb') as infile:
-            self.word_trie: utils.trie.Trie = pickle.load(infile)
-
-        with open(word_list_fn) as infile:
-            for line in infile:
-                self.vocabulary.add(line.strip().lower())
-
-        # we create word lists for the starting/middle subwords
-        # now we have to filter based on length
+        try:
+            with open(trie_fn, 'rb') as infile:
+                self.word_trie: Trie = pickle.load(infile)
+        except FileNotFoundError:
+            print(f'Trie model file not found at {trie_fn} location, creating one.')
+            self.word_trie = Trie()
+            #  wordlist_tokenized always exists
+            with open('wordlist_tokenized.csv') as infile:
+                csv_reader = csv.reader(infile)
+                for text, word in csv_reader:
+                    if len(word) == 0:
+                        continue
+                    word = list(map(int, word.split(' ')))
+                    if len(word) > 10:
+                        continue
+                    self.word_trie.insert(word)
+            with open(trie_fn, 'wb') as outfile:
+                pickle.dump(self.word_trie, outfile)
+            print(f'Trie model created at {trie_fn} location.')
 
         self.starting_words = {id_: word for word, id_ in self.tokenizer.vocab.items() if word.isalpha()}
         self.center_words = {id_: word for word, id_ in self.tokenizer.vocab.items() if word[0:2] == '##'}
@@ -292,6 +301,7 @@ class Game:
             selected_wordids = self.tokenizer(selected_word, add_special_tokens=False)
             if len(selected_wordids['input_ids']) == number_of_subwords:
                 break
+
         guesses = set()
         user_guessed = False
         bert_guessed = False
@@ -299,10 +309,10 @@ class Game:
         sentences = []
         contexts = []
 
+        print(selected_word)
         print(len(selected_word), selected_wordids, self.counter[selected_word])
 
         for i, orig_sentence in enumerate(self.line_yielder(self.corp_fn, selected_word, full_sentence)):
-
             tokenized_sentence = orig_sentence.split(' ')
             mask_loc = tokenized_sentence.index(selected_word)
 
@@ -310,12 +320,9 @@ class Game:
             masked_sentence[mask_loc] = 'MISSING'
 
             contexts.append(masked_sentence)
-            # softmax_tensors.append(self.get_probabilities(masked_sentence))
             bert_guesses = self.make_guess(contexts, word_length=len(selected_word),
                                            previous_guesses=guesses, retry_wrong=False,
                                            number_of_subwords=len(selected_wordids['input_ids']))
-            # bert_guesses = self.make_guess(softmax_tensors, word_length=len(selected_word),
-            #                                previous_guesses=guesses, retry_wrong=False)
 
             # UI
             current_sentence = orig_sentence.replace(selected_word, '#' * len(selected_word), 1)
@@ -355,5 +362,6 @@ class Game:
 
 if __name__ == '__main__':
     game = Game('freqs.csv', 'tokenized_100k_corp.spl', 'wordlist_3M.csv')
-    game_lengths = [game.guessing_game(show_bert_output=True, full_sentence=False, number_of_subwords=i) for i in range(1, 5)]
+    game_lengths = [game.guessing_game(show_bert_output=True, full_sentence=False, number_of_subwords=i)
+                    for i in range(1, 5)]
     print(game_lengths)
