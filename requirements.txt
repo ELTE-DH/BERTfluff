@@ -1,2 +1,5 @@
 torch
 transformers
+flask
+flask_restful
+numpy
