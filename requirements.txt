@@ -1,5 +1,6 @@
 torch
 transformers
 flask
-flask_restful
 numpy
+gensim==4.0
+python-Levenshtein
