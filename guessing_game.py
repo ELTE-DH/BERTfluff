@@ -2,11 +2,8 @@ import csv
 import random
 from collections import Counter
 from typing import Generator, List
-
 import transformers
-
-from bert_guesser import Bert_Guesser
-from gensim_guesser import GensimGuesser
+import guessers
 
 
 # suppress warning, only complain when halting
@@ -20,7 +17,7 @@ def create_corpora():
     c = Counter()
     sentences = set()
     dupes = 0
-    with open('100k_tok.spl') as infile, open('tokenized_100k_corp.spl', 'w') as outfile:
+    with open('resources/100k_tok.spl') as infile, open('resources/tokenized_100k_corp.spl', 'w') as outfile:
         for line in infile:
             if line[0] == '#':
                 continue
@@ -37,7 +34,7 @@ def create_corpora():
 
     print(f'There were {dupes} duplicated sentences.')
 
-    with open('freqs.csv', 'w') as outfile:
+    with open('resources/freqs.csv', 'w') as outfile:
         csv_writer = csv.writer(outfile)
         for word, freq in sorted(c.items(), key=lambda x: x[1], reverse=True):
             csv_writer.writerow([word, freq])
@@ -175,7 +172,7 @@ class Game:
         sentences = []
         contexts = []
 
-        print(selected_word)
+        # print(selected_word)
         print(len(selected_word), selected_wordids, self.counter[selected_word])
 
         for i, orig_sentence in enumerate(self.line_yielder(self.corp_fn, selected_word, full_sentence)):
@@ -228,8 +225,8 @@ class Game:
 
 if __name__ == '__main__':
 
-    computer_guesser = GensimGuesser()
-    game = Game('freqs.csv', 'tokenized_100k_corp.spl', guesser=computer_guesser)
+    computer_guesser = guessers.BertGuesser()
+    game = Game('resources/freqs.csv', 'resources/tokenized_100k_corp.spl', guesser=computer_guesser)
     game_lengths = [game.guessing_game(show_bert_output=True, full_sentence=False, number_of_subwords=i)
-                    for i in range(1, 5)]
+                    for i in [1, 2]]
     print(game_lengths)

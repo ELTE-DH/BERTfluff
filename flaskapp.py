@@ -1,10 +1,19 @@
 from flask import Flask, request
-from bert_guesser import Bert_Guesser
-from gensim_guesser import GensimGuesser
+import guessers
 
 app = Flask(__name__)
-bert_guesser = Bert_Guesser(trie_fn='models/trie_words.pickle')
-gensim_guesser = GensimGuesser(model_fn='models/hu_wv.gensim')
+try:
+    bert_guesser = guessers.BertGuesser(trie_fn='models/trie_words.pickle', wordlist_fn='resources/wordlist_3M.csv')
+except Exception as e:
+    print(e)
+    bert_guesser = guessers.DummyGuesser()
+
+try:
+    gensim_guesser = guessers.GensimGuesser(model_fn='models/hu_wv.gensim')
+except Exception as e:
+    print(e)
+    print('Gensim guesser is not running, creating a DummyGuesser.')
+    gensim_guesser = guessers.DummyGuesser()
 
 
 @app.route('/bertguess', methods=['GET', 'POST'])

@@ -1,4 +1,3 @@
-import csv
 import os
 import pickle
 from typing import List, Iterable
@@ -7,42 +6,48 @@ import torch
 import torch.nn.functional as F
 import transformers
 from utils.trie import Trie, TrieNode
-# needs trienode for the pickled object
+import tqdm
+import gensim
+from collections import defaultdict
 
 
-class Bert_Guesser:
+# needs trie node for the pickled object
+
+
+class BertGuesser:
     if 'models' in os.listdir('./'):
         tokenizer = transformers.AutoTokenizer.from_pretrained('models/hubert-base-cc', lowercase=True)
         model = transformers.BertForMaskedLM.from_pretrained('models/hubert-base-cc', return_dict=True)
     else:
         # if used with the online model, it will only start if internet is available due to checking the online cache
-        # for a new model
+        # for a new model, thus we save the model in `models` for later reuse
         tokenizer = transformers.AutoTokenizer.from_pretrained('SZTAKI-HLT/hubert-base-cc', lowercase=True)
         model = transformers.BertForMaskedLM.from_pretrained('SZTAKI-HLT/hubert-base-cc', return_dict=True)
-        os.mkdir('models')
+        if 'models' not in os.listdir('./'):
+            os.mkdir('models')
         tokenizer.save_pretrained('models/hubert-base-cc')
         model.save_pretrained('models/hubert-base-cc')
 
-    def __init__(self, trie_fn: str = 'models/trie_words.pickle'):
+    def __init__(self, trie_fn: str = 'models/trie_words.pickle', wordlist_fn: str = 'resources/wordlist_3M.csv'):
         """
         Bert guesser class. Upon receiving a context, it returns guesses based on the Trie of available words.
+        :param trie_fn: Filename for the tree. If the file is not available, it will be used as an output and a trie
+        will be created at `trie_fn` location.
+        :param wordlist_fn: If there is no trie supplemented, it will be created based on this file.
         """
 
         try:
             with open(trie_fn, 'rb') as infile:
                 self.word_trie: Trie = pickle.load(infile)
         except FileNotFoundError:
-            print(f'Trie model file not found at {trie_fn} location, creating one.')
+            print(f'Trie model file not found at {trie_fn} location, creating one from {wordlist_fn}.')
             self.word_trie = Trie()
             #  wordlist_tokenized always exists
-            with open('wordlist_tokenized.csv') as infile:
-                csv_reader = csv.reader(infile)
-                for text, word in csv_reader:
-                    if len(word) == 0:
+            with open(wordlist_fn) as infile:
+                for line in tqdm.tqdm(infile, desc='Building trie... '):
+                    if len(line) <= 1 or len(line) >= 16:
                         continue
-                    word = list(map(int, word.split(' ')))
-                    if len(word) > 10:
-                        continue
+                    word = self.tokenizer(line.strip(), add_special_tokens=False)['input_ids']
                     self.word_trie.insert(word)
             with open(trie_fn, 'wb') as outfile:
                 pickle.dump(self.word_trie, outfile)
@@ -68,7 +73,7 @@ class Bert_Guesser:
     def calculate_softmax_from_context(self, contexts: List[List[str]], number_of_subwords: int,
                                        missing_token: str) -> List[torch.Tensor]:
         """
-        Calculates the softmax tensors for a given lsit of contexts.
+        Calculates the softmax tensors for a given list of contexts.
         :param missing_token: The name of the missing token.
         :param contexts: Multiple contexts, where one context is a list of strings, with the mask word being MISSING.
         :param number_of_subwords: Number of subwords in the `missing_token` location
@@ -78,7 +83,7 @@ class Bert_Guesser:
         softmax_tensors = []
         for context in contexts:
             mask_loc = context.index(missing_token)
-            unk_context = context[:mask_loc] + number_of_subwords * [self.tokenizer.mask_token] + context[mask_loc+1:]
+            unk_context = context[:mask_loc] + number_of_subwords * [self.tokenizer.mask_token] + context[mask_loc + 1:]
             bert_context = self.tokenizer(' '.join(unk_context))['input_ids']
             softmax = self.get_probabilities(self.tokenizer.decode(bert_context))
             softmax_tensors.append(softmax)
@@ -156,3 +161,68 @@ class Bert_Guesser:
             if len(word) == target_word_length and word.isalpha():
                 # somehow BERT loves making multi-words with hyphens
                 yield word
+
+
+class GensimGuesser:
+    def __init__(self, model_fn='models/hu_wv.gensim'):
+        self.model = gensim.models.Word2Vec.load(model_fn)
+
+    @staticmethod
+    def create_compatible_context(context: List[str], missing_token: str) -> List[str]:
+
+        return [word for word in context if word != missing_token]
+
+    def make_guess(self, contexts: List[List[str]], word_length: int, number_of_subwords: int,
+                   previous_guesses: Iterable[str], retry_wrong: bool, top_n: int = 10,
+                   missing_token: str = 'MISSING') -> List[str]:
+        """
+        A gensim-based guesser. Since gensim's API is stable, it can be either FastText, CBOW or skip-gram, as long
+        as the model has a `predict_output_word` method.
+        Takes the top 1_000_000 guesses for each context, creates the intersection of these guesses, and returns
+        the word with the highest possibility by taking the product of the possibilities for each context.
+
+        :param missing_token: String representation of the token marking the place of the guess.
+        :param contexts: contexts
+        :param word_length: length of the missing word
+        :param number_of_subwords: number of subwords to guess, it is unused in this method
+        :param previous_guesses: previous guesses
+        :param retry_wrong: whether to retry or discard previous guesses
+        :param top_n: number of guesses
+        :return: guesses in a list
+        """
+
+        fixed_contexts = [self.create_compatible_context(context, missing_token) for context in contexts]
+        guess_vocab = set()
+        probabilities = defaultdict(lambda: 1.0)
+
+        for context in fixed_contexts:
+            current_vocab = set()
+            for word, prob in self.model.predict_output_word(context, 1_000_000):
+                if len(word) == word_length:
+                    current_vocab.add(word)
+                    probabilities[word] *= prob
+
+            if len(guess_vocab) == 0:
+                guess_vocab = current_vocab.copy()
+            else:
+                guess_vocab = guess_vocab.intersection(current_vocab)
+
+        guesses = {word: probabilities[word] for word in guess_vocab}
+
+        retval = []
+        for word, prob in sorted(guesses.items(), key=lambda x: x[1], reverse=True):
+            if word not in previous_guesses or retry_wrong:
+                retval.append(word)
+            if len(retval) >= top_n:
+                break
+
+        return retval
+
+
+class DummyGuesser:
+    """
+    Dummy guesser. Provides the make_guess method in case of another guesser fails.
+    """
+    @staticmethod
+    def make_guess(top_n: int = 10, *_, **__) -> List[str]:
+        return ['_'] * top_n
