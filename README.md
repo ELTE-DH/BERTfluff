@@ -9,9 +9,21 @@ Minden mondatból ugyanaz a szó hiányzik, mindaddig, amíg valaki ki nem talá
 
 ### Install
 
-`virtualenv venv`
-`source venv/bin/activate`
-`pip install -r requirements.txt`
+```bash
+virtualenv venv
+source venv/bin/activate
+pip install -r requirements.txt
+```
+
+
+A Gensim Guesserhez pedig a magyar modellek letöltése szükséges:
+
+```bash
+cd models
+wget https://nessie.ilab.sztaki.hu/~levai/hungarian_wv_models/hu_wv.gensim
+wget https://nessie.ilab.sztaki.hu/~levai/hungarian_wv_models/hu_wv.gensim.syn1neg.npy
+wget https://nessie.ilab.sztaki.hu/~levai/hungarian_wv_models/hu_wv.gensim.wv.vectors.npy
+```
 
 ### Használat
 

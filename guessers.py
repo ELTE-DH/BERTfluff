@@ -36,25 +36,32 @@ class BertGuesser:
         :param wordlist_fn: If there is no trie supplemented, it will be created based on this file.
         """
 
-        try:
-            with open(trie_fn, 'rb') as infile:
-                self.word_trie: Trie = pickle.load(infile)
-        except FileNotFoundError:
-            print(f'Trie model file not found at {trie_fn} location, creating one from {wordlist_fn}.')
-            self.word_trie = Trie()
-            #  wordlist_tokenized always exists
-            with open(wordlist_fn) as infile:
-                for line in tqdm.tqdm(infile, desc='Building trie... '):
-                    if len(line) <= 1 or len(line) >= 16:
-                        continue
-                    word = self.tokenizer(line.strip(), add_special_tokens=False)['input_ids']
-                    self.word_trie.insert(word)
-            with open(trie_fn, 'wb') as outfile:
-                pickle.dump(self.word_trie, outfile)
-            print(f'Trie model created at {trie_fn} location.')
-
+        self.word_trie = self.create_trie(trie_fn, wordlist_fn)
         self.starting_words = {id_: word for word, id_ in self.tokenizer.vocab.items() if word.isalpha()}
         self.center_words = {id_: word for word, id_ in self.tokenizer.vocab.items() if word[0:2] == '##'}
+
+    def create_trie(self, trie_fn: str, wordlist_fn: str) -> Trie:
+
+        if 'models' in os.listdir('./'):
+            if trie_fn in os.listdir('./models'):
+                with open(trie_fn, 'rb') as infile:
+                    word_trie: Trie = pickle.load(infile)
+            else:
+                print(f'Trie model file not found at {trie_fn} location, creating one from {wordlist_fn}.')
+                word_trie = Trie()
+                #  wordlist_tokenized always exists
+                with open(wordlist_fn) as infile:
+                    for line in tqdm.tqdm(infile, desc='Building trie... '):
+                        if len(line) <= 1 or len(line) >= 16:
+                            continue
+                        word = self.tokenizer(line.strip(), add_special_tokens=False)['input_ids']
+                        self.word_trie.insert(word)
+                with open(trie_fn, 'wb') as outfile:
+                    pickle.dump(self.word_trie, outfile)
+                print(f'Trie model created at {trie_fn} location.')
+
+        return word_trie
+
 
     def get_probabilities(self, masked_text: str) -> torch.Tensor:
         """
@@ -101,13 +108,8 @@ class BertGuesser:
         guess_iterator = self.softmax_iterator(joint_probabilities, target_word_length=word_length)
         guesses = []
         for guess in guess_iterator:
-            if retry_wrong:
+            if retry_wrong or guess not in previous_guesses:
                 guesses.append(guess)
-            else:
-                if guess in previous_guesses:
-                    continue
-                else:
-                    guesses.append(guess)
             if len(guesses) >= top_n:
                 break
 

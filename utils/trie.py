@@ -35,7 +35,7 @@ class TrieNode:
         return ret
 
 
-class Trie(object):
+class Trie:
     """The trie object"""
 
     def __init__(self):
@@ -44,6 +44,7 @@ class Trie(object):
         The root node does not store any character
         """
         self.root = TrieNode(-1)
+        self.output = []
 
     def insert(self, word_ids: List[int]):
         """Insert a word into the trie"""
@@ -145,7 +146,7 @@ class Trie(object):
         return sorted(self.output, key=lambda x: x[1], reverse=True)
 
 
-if __name__ == '__main__':
+def main():
     trie = Trie()
     with open('../wordlist_tokenized.csv') as infile:
         csv_reader = csv.reader(infile)
@@ -157,11 +158,11 @@ if __name__ == '__main__':
                 continue
             trie.insert(word)
 
-    output_1 = trie.query([9939])
-    output_2 = trie.query_fixed_depth([9939], 3)
+    # output_1 = trie.query([9939])
+    # output_2 = trie.query_fixed_depth([9939], 3)
     with open('../models/trie_words.pickle', 'wb') as outfile:
         pickle.dump(trie, outfile)
 
 
-
-
+if __name__ == '__main__':
+    main()

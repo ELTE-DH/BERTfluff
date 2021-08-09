@@ -40,47 +40,10 @@ def create_corpora():
             csv_writer.writerow([word, freq])
 
 
-def tokenize_wpl_file(infilename: str, outfilename: str):
-    tokenizer = transformers.AutoTokenizer.from_pretrained('models/hubert-base-cc', lowercase=True)
-
-    with open(infilename) as infile, open(outfilename, 'w') as outfile:
-        csv_writer = csv.writer(outfile)
-        for line in infile:
-            input_ids = tokenizer(line, add_special_tokens=False)['input_ids']
-            csv_writer.writerow([line.strip(), ' '.join(map(str, input_ids))])
-
-
 def create_aligned_text(sentences: List[str]) -> List[str]:
     hashmark_positions = [sen.find('#') for sen in sentences]
     zero_point = max(hashmark_positions)
     return [' ' * (zero_point - position) + sentence for position, sentence in zip(hashmark_positions, sentences)]
-
-
-def increment_list_index(lst: list, index) -> list:
-    new_lst = lst.copy()
-    new_lst[index] += 1
-    return new_lst
-
-
-def traverse_dims(lst: list, max_id: int) -> List[List]:
-    candidates = []
-    for i, elem in enumerate(lst):
-        if elem < max_id:
-            candidates.append(increment_list_index(lst, i))
-        else:
-            continue
-
-    return candidates
-
-
-def traverse_restricted(lst: list, max_ids: List[int]) -> List[List]:
-    candidates = []
-    for i, elem in enumerate(lst):
-        if elem < max_ids[i]:
-            candidates.append(increment_list_index(lst, i))
-        else:
-            continue
-    return candidates
 
 
 class Game:
@@ -95,8 +58,6 @@ class Game:
         self.corp_fn = corp_fn
         self.guesser = guesser
         self.tokenizer = transformers.AutoTokenizer.from_pretrained('SZTAKI-HLT/hubert-base-cc', lowercase=True)
-
-
 
     @staticmethod
     def create_counter(filename: str, min_threshold: int = 30) -> Counter:
@@ -225,7 +186,7 @@ class Game:
 
 if __name__ == '__main__':
 
-    computer_guesser = guessers.BertGuesser()
+    computer_guesser = guessers.GensimGuesser()
     game = Game('resources/freqs.csv', 'resources/tokenized_100k_corp.spl', guesser=computer_guesser)
     game_lengths = [game.guessing_game(show_bert_output=True, full_sentence=False, number_of_subwords=i)
                     for i in [1, 2]]
