@@ -43,7 +43,8 @@ class Trie:
         The trie has at least the root node.
         The root node does not store any character
         """
-        self.root = TrieNode(-1)
+        self._trienode_factory = TrieNode
+        self.root = self._trienode_factory(-1)
         self.output = []
 
     def insert(self, word_ids: List[int]):

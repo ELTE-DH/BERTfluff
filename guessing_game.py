@@ -1,9 +1,10 @@
 import csv
 import random
 from collections import Counter
-from typing import Generator, List
+from typing import Generator, List, Tuple
 import transformers
 import guessers
+import helper
 
 
 # suppress warning, only complain when halting
@@ -114,21 +115,66 @@ class Game:
 
         return ' '.join(sentence[max(0, center - window_size):min(len(sentence), center + window_size + 1)])
 
-    def guessing_game(self, show_bert_output: bool = True, full_sentence: bool = False,
-                      number_of_subwords: int = 1) -> List:
+    def select_word(self, number_of_subwords: int) -> Tuple[str, list]:
         """
-        Provides the interface for the game.
-        :return: a list of length 3, containing the number of guesses of the player, BERT and the word missing
+        Selects a word from the self.counter dictionary.
+
+        :param number_of_subwords:
+        :return:
         """
+
         while True:
             selected_word = random.choice(list(self.counter.keys()))
             selected_wordids = self.tokenizer(selected_word, add_special_tokens=False)
             if len(selected_wordids['input_ids']) == number_of_subwords:
                 break
 
+        return selected_word, selected_wordids['input_ids']
+
+    @staticmethod
+    def user_experience(selected_word: str, sentences: List[str], user_guessed: bool,
+                        computer_guessed: bool, show_model_output: bool, previous_guesses: set,
+                        computer_guesses: List[str]):
+
+        print('\n'.join(create_aligned_text(sentences)))
+        print('-' * 80)
+
+        if not user_guessed:
+            user_input = input('Please input your guess: ').strip()
+            similarity = helper.word_similarity(selected_word, user_input)
+            if similarity != -1.0:
+                print(f'Your guess has a {similarity:.3f} similarity to the missing word.')
+            if user_input == selected_word or user_input == '':
+                user_guessed = True
+                print(f'Your guess ({user_input}) was correct.')
+
+        print(f'Computer\'s guess is {"".join(computer_guesses[:1])}')
+
+        if show_model_output:
+            print(f'Computer\'s top 10 guesses: {" ".join(computer_guesses[:10])}')
+
+        computer_guess = computer_guesses[0] if len(computer_guesses) > 0 else ''
+
+        if not computer_guessed:
+            computer_guessed = computer_guess == selected_word
+            if computer_guessed:
+                print('Computer guessed the word.')
+            else:
+                previous_guesses.add(computer_guess)
+
+        return user_guessed, computer_guessed, previous_guesses.copy()
+
+    def guessing_game(self, show_model_output: bool = True, full_sentence: bool = False,
+                      number_of_subwords: int = 1, helper = None) -> List:
+        """
+        Provides the interface for the game.
+        :return: a list of length 3, containing the number of guesses of the player, BERT and the word missing
+        """
+        selected_word, selected_wordids = self.select_word(number_of_subwords)
+
         guesses = set()
         user_guessed = False
-        bert_guessed = False
+        computer_guessed = False
         retval = [-1, -1, selected_word]
         sentences = []
         contexts = []
@@ -136,48 +182,33 @@ class Game:
         # print(selected_word)
         print(len(selected_word), selected_wordids, self.counter[selected_word])
 
-        for i, orig_sentence in enumerate(self.line_yielder(self.corp_fn, selected_word, full_sentence)):
-            tokenized_sentence = orig_sentence.split(' ')
+        for i, original_sentence in enumerate(self.line_yielder(self.corp_fn, selected_word, full_sentence)):
+
+            current_sentence = original_sentence.replace(selected_word, '#' * len(selected_word), 1)
+            sentences.append(current_sentence)
+
+            tokenized_sentence = original_sentence.split(' ')
             mask_loc = tokenized_sentence.index(selected_word)
 
             masked_sentence = tokenized_sentence.copy()
             masked_sentence[mask_loc] = 'MISSING'
 
             contexts.append(masked_sentence)
-            bert_guesses = self.guesser.make_guess(contexts, word_length=len(selected_word),
-                                                   previous_guesses=guesses, retry_wrong=False,
-                                                   number_of_subwords=len(selected_wordids['input_ids']))
+            computer_guesses = self.guesser.make_guess(contexts, word_length=len(selected_word),
+                                                       previous_guesses=guesses, retry_wrong=False,
+                                                       number_of_subwords=len(selected_wordids))
 
-            # UI
-            current_sentence = orig_sentence.replace(selected_word, '#' * len(selected_word), 1)
-            sentences.append(current_sentence)
-            print('\n'.join(create_aligned_text(sentences)))
-            print('-' * 80)
+            user_guessed, computer_guessed, guesses = self.user_experience(selected_word, sentences, user_guessed,
+                                                                           computer_guessed, show_model_output, guesses,
+                                                                           computer_guesses)
 
-            if not user_guessed:
-                user_input = input('Please input your guess: ')
-                if user_input.strip() == selected_word:
-                    user_guessed = True
-                    retval[0] = i + 1
-                elif user_input.strip() == '':
-                    user_guessed = True
+            # We log how many guesses it took for the players.
+            if user_guessed and retval[0] == -1:
+                retval[0] = i+1
+            if computer_guessed and retval[1] == -1:
+                retval[1] = i+1
 
-            print(f'Computer\'s guess is {bert_guesses[:1]}')
-
-            if show_bert_output:
-                print(f'Computer\'s top 10 guesses: {" ".join(bert_guesses[:10])}')
-
-            guess = bert_guesses[0] if len(bert_guesses) > 0 else ''
-
-            if not bert_guessed:
-                if guess == selected_word:
-                    print('Computer guessed the word.')
-                    bert_guessed = True
-                    retval[1] = i + 1
-                else:
-                    guesses.add(guess)
-
-            if bert_guessed and user_guessed:
+            if computer_guessed and user_guessed:
                 return retval
 
         # in case player does not guess it, we return
@@ -186,8 +217,9 @@ class Game:
 
 if __name__ == '__main__':
 
-    computer_guesser = guessers.GensimGuesser()
+    computer_guesser = guessers.BertGuesser()
+    helper = helper.GensimHelper()
     game = Game('resources/freqs.csv', 'resources/tokenized_100k_corp.spl', guesser=computer_guesser)
-    game_lengths = [game.guessing_game(show_bert_output=True, full_sentence=False, number_of_subwords=i)
+    game_lengths = [game.guessing_game(show_model_output=True, full_sentence=False, number_of_subwords=i, helper=helper)
                     for i in [1, 2]]
     print(game_lengths)

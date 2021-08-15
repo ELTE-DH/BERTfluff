@@ -5,7 +5,7 @@ import numpy as np
 import torch
 import torch.nn.functional as F
 import transformers
-from utils.trie import Trie, TrieNode
+from utils.trie import Trie
 import tqdm
 import gensim
 from collections import defaultdict
@@ -28,7 +28,7 @@ class BertGuesser:
         tokenizer.save_pretrained('models/hubert-base-cc')
         model.save_pretrained('models/hubert-base-cc')
 
-    def __init__(self, trie_fn: str = 'models/trie_words.pickle', wordlist_fn: str = 'resources/wordlist_3M.csv'):
+    def __init__(self, trie_fn: str = 'trie_words.pickle', wordlist_fn: str = 'resources/wordlist_3M.csv'):
         """
         Bert guesser class. Upon receiving a context, it returns guesses based on the Trie of available words.
         :param trie_fn: Filename for the tree. If the file is not available, it will be used as an output and a trie
@@ -43,8 +43,8 @@ class BertGuesser:
     def create_trie(self, trie_fn: str, wordlist_fn: str) -> Trie:
 
         if 'models' in os.listdir('./'):
-            if trie_fn in os.listdir('./models'):
-                with open(trie_fn, 'rb') as infile:
+            if trie_fn in os.listdir(f'models/'):
+                with open(f'models/{trie_fn}', 'rb') as infile:
                     word_trie: Trie = pickle.load(infile)
             else:
                 print(f'Trie model file not found at {trie_fn} location, creating one from {wordlist_fn}.')
@@ -55,13 +55,12 @@ class BertGuesser:
                         if len(line) <= 1 or len(line) >= 16:
                             continue
                         word = self.tokenizer(line.strip(), add_special_tokens=False)['input_ids']
-                        self.word_trie.insert(word)
-                with open(trie_fn, 'wb') as outfile:
-                    pickle.dump(self.word_trie, outfile)
-                print(f'Trie model created at {trie_fn} location.')
+                        word_trie.insert(word)
+                with open(f'models/{trie_fn}', 'wb') as outfile:
+                    pickle.dump(word_trie, outfile)
+                print(f'Trie model created at models/{trie_fn} location.')
 
         return word_trie
-
 
     def get_probabilities(self, masked_text: str) -> torch.Tensor:
         """
@@ -194,29 +193,18 @@ class GensimGuesser:
         """
 
         fixed_contexts = [self.create_compatible_context(context, missing_token) for context in contexts]
-        guess_vocab = set()
         probabilities = defaultdict(lambda: 1.0)
 
+        first_round = True
         for context in fixed_contexts:
-            current_vocab = set()
             for word, prob in self.model.predict_output_word(context, 1_000_000):
-                if len(word) == word_length:
-                    current_vocab.add(word)
+                # The only correct words are
+                if len(word) == word_length and (word in probabilities or first_round) and (
+                        word not in previous_guesses or retry_wrong):
                     probabilities[word] *= prob
+            first_round = False
 
-            if len(guess_vocab) == 0:
-                guess_vocab = current_vocab.copy()
-            else:
-                guess_vocab = guess_vocab.intersection(current_vocab)
-
-        guesses = {word: probabilities[word] for word in guess_vocab}
-
-        retval = []
-        for word, prob in sorted(guesses.items(), key=lambda x: x[1], reverse=True):
-            if word not in previous_guesses or retry_wrong:
-                retval.append(word)
-            if len(retval) >= top_n:
-                break
+        retval = [word for word, _ in sorted(probabilities.items(), key=lambda x: x[1], reverse=True)][:top_n]
 
         return retval
 
@@ -225,6 +213,7 @@ class DummyGuesser:
     """
     Dummy guesser. Provides the make_guess method in case of another guesser fails.
     """
+
     @staticmethod
     def make_guess(top_n: int = 10, *_, **__) -> List[str]:
         return ['_'] * top_n
