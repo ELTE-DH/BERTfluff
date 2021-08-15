@@ -48,7 +48,7 @@ def create_aligned_text(sentences: List[str]) -> List[str]:
 
 
 class Game:
-    def __init__(self, freqs_fn: str, corp_fn: str, guesser):
+    def __init__(self, freqs_fn: str, corp_fn: str, guesser, sim_helper: helper.GensimHelper = None):
         """
 
         :param freqs_fn: Word frequencies to choose.
@@ -59,6 +59,7 @@ class Game:
         self.corp_fn = corp_fn
         self.guesser = guesser
         self.tokenizer = transformers.AutoTokenizer.from_pretrained('SZTAKI-HLT/hubert-base-cc', lowercase=True)
+        self.similarity_helper = sim_helper
 
     @staticmethod
     def create_counter(filename: str, min_threshold: int = 30) -> Counter:
@@ -131,8 +132,7 @@ class Game:
 
         return selected_word, selected_wordids['input_ids']
 
-    @staticmethod
-    def user_experience(selected_word: str, sentences: List[str], user_guessed: bool,
+    def user_experience(self, selected_word: str, sentences: List[str], user_guessed: bool,
                         computer_guessed: bool, show_model_output: bool, previous_guesses: set,
                         computer_guesses: List[str]):
 
@@ -141,7 +141,7 @@ class Game:
 
         if not user_guessed:
             user_input = input('Please input your guess: ').strip()
-            similarity = helper.word_similarity(selected_word, user_input)
+            similarity = self.similarity_helper.word_similarity(selected_word, user_input)
             if similarity != -1.0:
                 print(f'Your guess has a {similarity:.3f} similarity to the missing word.')
             if user_input == selected_word or user_input == '':
@@ -165,7 +165,7 @@ class Game:
         return user_guessed, computer_guessed, previous_guesses.copy()
 
     def guessing_game(self, show_model_output: bool = True, full_sentence: bool = False,
-                      number_of_subwords: int = 1, helper = None) -> List:
+                      number_of_subwords: int = 1) -> List:
         """
         Provides the interface for the game.
         :return: a list of length 3, containing the number of guesses of the player, BERT and the word missing
@@ -218,8 +218,9 @@ class Game:
 if __name__ == '__main__':
 
     computer_guesser = guessers.BertGuesser()
-    helper = helper.GensimHelper()
-    game = Game('resources/freqs.csv', 'resources/tokenized_100k_corp.spl', guesser=computer_guesser)
-    game_lengths = [game.guessing_game(show_model_output=True, full_sentence=False, number_of_subwords=i, helper=helper)
+    guess_helper = helper.GensimHelper()
+    game = Game('resources/freqs.csv', 'resources/tokenized_100k_corp.spl', guesser=computer_guesser,
+                sim_helper=guess_helper)
+    game_lengths = [game.guessing_game(show_model_output=True, full_sentence=False, number_of_subwords=i)
                     for i in [1, 2]]
     print(game_lengths)
