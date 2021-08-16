@@ -23,7 +23,6 @@ class TrieNode:
         self.children = {}
 
     def get_repr_string(self, tab: str = '\t', m: int = 0):
-        # TODO m grows, tab stays. Why is tab needed?
         ret = ''.join(tab for _ in range(m))
         ret += str(self.word_id)
 

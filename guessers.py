@@ -52,10 +52,9 @@ class BertGuesser:
                 #  wordlist_tokenized always exists
                 with open(wordlist_fn) as infile:
                     for line in tqdm.tqdm(infile, desc='Building trie... '):
-                        if len(line) <= 1 or len(line) >= 16:
-                            continue
-                        word = self.tokenizer(line.strip(), add_special_tokens=False)['input_ids']
-                        word_trie.insert(word)
+                        if 1 < len(line) < 16:
+                            word = self.tokenizer(line.strip(), add_special_tokens=False)['input_ids']
+                            word_trie.insert(word)
                 with open(f'models/{trie_fn}', 'wb') as outfile:
                     pickle.dump(word_trie, outfile)
                 print(f'Trie model created at models/{trie_fn} location.')
@@ -133,6 +132,9 @@ class BertGuesser:
 
         softmax_tensors = self.calculate_softmax_from_context(contexts, number_of_subwords, missing_token)
         guesses = self.calculate_guess(softmax_tensors, word_length, previous_guesses, retry_wrong, top_n)
+        if len(guesses) != top_n:
+            # in case we didn't find enough guesses, we pad
+            guesses += ['_'] * (top_n - len(guesses))
         return guesses
 
     def softmax_iterator(self, probability_tensor: torch.Tensor, target_word_length: int) -> str:
