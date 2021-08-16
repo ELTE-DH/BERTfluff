@@ -15,18 +15,6 @@ from collections import defaultdict
 
 
 class BertGuesser:
-    if 'models' in os.listdir('./'):
-        tokenizer = transformers.AutoTokenizer.from_pretrained('models/hubert-base-cc', lowercase=True)
-        model = transformers.BertForMaskedLM.from_pretrained('models/hubert-base-cc', return_dict=True)
-    else:
-        # if used with the online model, it will only start if internet is available due to checking the online cache
-        # for a new model, thus we save the model in `models` for later reuse
-        tokenizer = transformers.AutoTokenizer.from_pretrained('SZTAKI-HLT/hubert-base-cc', lowercase=True)
-        model = transformers.BertForMaskedLM.from_pretrained('SZTAKI-HLT/hubert-base-cc', return_dict=True)
-        if 'models' not in os.listdir('./'):
-            os.mkdir('models')
-        tokenizer.save_pretrained('models/hubert-base-cc')
-        model.save_pretrained('models/hubert-base-cc')
 
     def __init__(self, trie_fn: str = 'trie_words.pickle', wordlist_fn: str = 'resources/wordlist_3M.csv'):
         """
@@ -36,11 +24,23 @@ class BertGuesser:
         :param wordlist_fn: If there is no trie supplemented, it will be created based on this file.
         """
 
-        self.word_trie = self.create_trie(trie_fn, wordlist_fn)
+        if 'models' in os.listdir('./'):
+            self.tokenizer = transformers.AutoTokenizer.from_pretrained('models/hubert-base-cc', lowercase=True)
+            self.model = transformers.BertForMaskedLM.from_pretrained('models/hubert-base-cc', return_dict=True)
+        else:
+            # when first downloading the model, we save it, so we don't need internet no more
+            self.tokenizer = transformers.AutoTokenizer.from_pretrained('SZTAKI-HLT/hubert-base-cc', lowercase=True)
+            self.model = transformers.BertForMaskedLM.from_pretrained('SZTAKI-HLT/hubert-base-cc', return_dict=True)
+            if 'models' not in os.listdir('./'):
+                os.mkdir('models')
+            self.tokenizer.save_pretrained('models/hubert-base-cc')
+            self.model.save_pretrained('models/hubert-base-cc')
+
+        self.word_trie = self._create_trie(trie_fn, wordlist_fn)
         self.starting_words = {id_: word for word, id_ in self.tokenizer.vocab.items() if word.isalpha()}
         self.center_words = {id_: word for word, id_ in self.tokenizer.vocab.items() if word[0:2] == '##'}
 
-    def create_trie(self, trie_fn: str, wordlist_fn: str) -> Trie:
+    def _create_trie(self, trie_fn: str, wordlist_fn: str) -> Trie:
 
         if 'models' in os.listdir('./'):
             if trie_fn in os.listdir(f'models/'):
@@ -61,7 +61,7 @@ class BertGuesser:
 
         return word_trie
 
-    def get_probabilities(self, masked_text: str) -> torch.Tensor:
+    def _get_probabilities(self, masked_text: str) -> torch.Tensor:
         """
         Creates the tensor from masked text.
         :param masked_text: A string containing the tokenizer's mask in text form. ([MASK])
@@ -75,8 +75,8 @@ class BertGuesser:
         probability_vector = softmax[0, mask_index[0], :]  # this is the probability vector for the masked WP's position
         return probability_vector
 
-    def calculate_softmax_from_context(self, contexts: List[List[str]], number_of_subwords: int,
-                                       missing_token: str) -> List[torch.Tensor]:
+    def _calculate_softmax_from_context(self, contexts: List[List[str]], number_of_subwords: int,
+                                        missing_token: str) -> List[torch.Tensor]:
         """
         Calculates the softmax tensors for a given list of contexts.
         :param missing_token: The name of the missing token.
@@ -90,20 +90,20 @@ class BertGuesser:
             mask_loc = context.index(missing_token)
             unk_context = context[:mask_loc] + number_of_subwords * [self.tokenizer.mask_token] + context[mask_loc + 1:]
             bert_context = self.tokenizer(' '.join(unk_context))['input_ids']
-            softmax = self.get_probabilities(self.tokenizer.decode(bert_context))
+            softmax = self._get_probabilities(self.tokenizer.decode(bert_context))
             softmax_tensors.append(softmax)
 
         return softmax_tensors
 
-    def calculate_guess(self, softmax_tensors: List[torch.Tensor], word_length: int,
-                        previous_guesses: Iterable, retry_wrong: bool = False, top_n: int = 10) -> List[str]:
+    def _calculate_guess(self, softmax_tensors: List[torch.Tensor], word_length: int,
+                         previous_guesses: Iterable, retry_wrong: bool = False, top_n: int = 10) -> List[str]:
 
         probability_tensor = torch.stack(softmax_tensors, dim=2)
         joint_probabilities = torch.prod(probability_tensor, dim=2)
 
         # length_combinations = self.knapsack_length(total_length=word_length, number_of_subwords=number_of_subwords)
 
-        guess_iterator = self.softmax_iterator(joint_probabilities, target_word_length=word_length)
+        guess_iterator = self._softmax_iterator(joint_probabilities, target_word_length=word_length)
         guesses = []
         for guess in guess_iterator:
             if retry_wrong or guess not in previous_guesses:
@@ -130,14 +130,14 @@ class BertGuesser:
         :return: BERT guesses in a list
         """
 
-        softmax_tensors = self.calculate_softmax_from_context(contexts, number_of_subwords, missing_token)
-        guesses = self.calculate_guess(softmax_tensors, word_length, previous_guesses, retry_wrong, top_n)
+        softmax_tensors = self._calculate_softmax_from_context(contexts, number_of_subwords, missing_token)
+        guesses = self._calculate_guess(softmax_tensors, word_length, previous_guesses, retry_wrong, top_n)
         if len(guesses) != top_n:
             # in case we didn't find enough guesses, we pad
             guesses += ['_'] * (top_n - len(guesses))
         return guesses
 
-    def softmax_iterator(self, probability_tensor: torch.Tensor, target_word_length: int) -> str:
+    def _softmax_iterator(self, probability_tensor: torch.Tensor, target_word_length: int) -> str:
 
         """
         Yields a valid guess (regardless of the previous guesses) by taking the joint probabilities and
@@ -171,7 +171,7 @@ class GensimGuesser:
         self.model = gensim.models.Word2Vec.load(model_fn)
 
     @staticmethod
-    def create_compatible_context(context: List[str], missing_token: str) -> List[str]:
+    def _create_compatible_context(context: List[str], missing_token: str) -> List[str]:
 
         return [word for word in context if word != missing_token]
 
@@ -194,7 +194,7 @@ class GensimGuesser:
         :return: guesses in a list
         """
 
-        fixed_contexts = [self.create_compatible_context(context, missing_token) for context in contexts]
+        fixed_contexts = [self._create_compatible_context(context, missing_token) for context in contexts]
         probabilities = defaultdict(lambda: 1.0)
 
         first_round = True

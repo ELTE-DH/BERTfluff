@@ -55,14 +55,14 @@ class Game:
         :param corp_fn: Corpus in SPL format.
         :return:
         """
-        self.counter = self.create_counter(filename=freqs_fn)
+        self.counter = self._create_counter(filename=freqs_fn)
         self.corp_fn = corp_fn
         self.guesser = guesser
         self.tokenizer = transformers.AutoTokenizer.from_pretrained('SZTAKI-HLT/hubert-base-cc', lowercase=True)
         self.similarity_helper = sim_helper
 
     @staticmethod
-    def create_counter(filename: str, min_threshold: int = 30) -> Counter:
+    def _create_counter(filename: str, min_threshold: int = 30) -> Counter:
         """
 
         :param filename:
@@ -79,8 +79,8 @@ class Game:
                     c[word] = int(freq)
         return c
 
-    def line_yielder(self, fname: str, word: str, full_sentence: bool,
-                     window_size: int = 5) -> Generator[str, None, None]:
+    def _line_yielder(self, fname: str, word: str, full_sentence: bool,
+                      window_size: int = 5) -> Generator[str, None, None]:
         """
         With a word_id, it starts tokenizing the corpora (which is fast, hence not precomputed),
         and when finds a sentence containing the token, it yields the sentence.
@@ -97,12 +97,12 @@ class Game:
                     if full_sentence:
                         yield line.strip()
                     else:
-                        yield self.create_context(sentence, word, window_size)
+                        yield self._create_context(sentence, word, window_size)
                 else:
                     continue
 
     @staticmethod
-    def create_context(sentence: List[str], target_word: str, window_size: int = 5) -> str:
+    def _create_context(sentence: List[str], target_word: str, window_size: int = 5) -> str:
         """
         In order to create a not subword-based context, we have to first reconstruct the original sentence,
         then find the word containing the subword, then rebuild and return the context.
@@ -116,7 +116,7 @@ class Game:
 
         return ' '.join(sentence[max(0, center - window_size):min(len(sentence), center + window_size + 1)])
 
-    def select_word(self, number_of_subwords: int) -> Tuple[str, list]:
+    def _select_word(self, number_of_subwords: int) -> Tuple[str, list]:
         """
         Selects a word from the self.counter dictionary.
 
@@ -131,8 +131,9 @@ class Game:
 
         return selected_word, selected_input_ids
 
-    def user_experience(self, selected_word: str, sentences: List[str], user_guessed: bool,
-                        computer_guessed: bool, show_model_output: bool, computer_guesses: List[str]):
+    def _user_experience(self, selected_word: str, sentences: List[str], user_guessed: bool,
+                         computer_guessed: bool, show_model_output: bool,
+                         computer_guesses: List[str]) -> Tuple[bool, bool]:
         """
         Provides the user experience.
 
@@ -181,7 +182,7 @@ class Game:
         return user_guessed, computer_guessed
 
     @staticmethod
-    def mask_sentence(original_sentence: str, missing_word: str) -> Tuple[List[str], str]:
+    def _mask_sentence(original_sentence: str, missing_word: str) -> Tuple[List[str], str]:
         """
         Masks a sentence in two ways: by replacing the selected word with `MISSING`, which is processed by the guessers
         and by replacing every character in the missing word with a hashmark.
@@ -203,9 +204,10 @@ class Game:
                       number_of_subwords: int = 1) -> dict:
         """
         Provides the interface for the game.
+
         :return: a dictionary of length 3, containing the number of guesses of the player, BERT and the word missing
         """
-        selected_word, selected_wordids = self.select_word(number_of_subwords)
+        selected_word, selected_wordids = self._select_word(number_of_subwords)
 
         computer_history = set()
         user_guessed = False
@@ -217,9 +219,9 @@ class Game:
         # print(selected_word)
         print(len(selected_word), selected_wordids, self.counter[selected_word])
 
-        for i, original_sentence in enumerate(self.line_yielder(self.corp_fn, selected_word, full_sentence)):
+        for i, original_sentence in enumerate(self._line_yielder(self.corp_fn, selected_word, full_sentence)):
 
-            computer_masked_sentence, hashmarked_sentence = self.mask_sentence(original_sentence, selected_word)
+            computer_masked_sentence, hashmarked_sentence = self._mask_sentence(original_sentence, selected_word)
             human_contexts.append(hashmarked_sentence)
             computer_contexts.append(computer_masked_sentence)
             computer_current_guesses = self.guesser.make_guess(computer_contexts, word_length=len(selected_word),
@@ -229,15 +231,15 @@ class Game:
 
             computer_history.add(computer_current_guesses[0])
 
-            user_guessed, computer_guessed = self.user_experience(selected_word, human_contexts, user_guessed,
-                                                                  computer_guessed, show_model_output,
-                                                                  computer_current_guesses)
+            user_guessed, computer_guessed = self._user_experience(selected_word, human_contexts, user_guessed,
+                                                                   computer_guessed, show_model_output,
+                                                                   computer_current_guesses)
 
             # We log how many guesses it took for the players.
             if user_guessed and retval['user_attempts'] == -1:
-                retval['user_attempts'] = i+1
+                retval['user_attempts'] = i + 1
             if computer_guessed and retval['computer_attempts'] == -1:
-                retval['computer_attempts'] = i+1
+                retval['computer_attempts'] = i + 1
 
             if computer_guessed and user_guessed:
                 return retval
@@ -247,7 +249,6 @@ class Game:
 
 
 if __name__ == '__main__':
-
     computer_guesser = guessers.BertGuesser()
     guess_helper = helper.GensimHelper()
     game = Game('resources/freqs.csv', 'resources/tokenized_100k_corp.spl', guesser=computer_guesser,
