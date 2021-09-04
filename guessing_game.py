@@ -58,7 +58,7 @@ class Game:
         self.counter = self._create_counter(filename=freqs_fn)
         self.corp_fn = corp_fn
         self.guesser = guesser
-        self.tokenizer = transformers.AutoTokenizer.from_pretrained('SZTAKI-HLT/hubert-base-cc', lowercase=True)
+        self.tokenizer = transformers.AutoTokenizer.from_pretrained('models/hubert-base-cc', lowercase=True)
         self.similarity_helper = sim_helper
 
     @staticmethod
@@ -143,7 +143,7 @@ class Game:
         :param computer_guessed: Whether the computer guessed correctly or not. If yes, skips over the computer-specific part.
         :param show_model_output: If its on, it prints the top 10 guesses of the computer.
         :param computer_guesses:
-        :return:
+        :return: Length of game for the player and the computer
         """
 
         print('\n'.join(create_aligned_text(sentences)))

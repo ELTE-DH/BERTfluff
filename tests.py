@@ -53,13 +53,17 @@ class BertGuesserTests(unittest.TestCase):
                      'folyamatos', 'fejlesztéseink', 'eredményeképpen']]
 
         number_of_subwords = 2
-        expected_output = ['Kormányok', 'Kormányos', 'hibaablak', 'Kormánymű', 'Telefonok', 'Telefonon', 'Ügyfélkör',
-                           'Telefonos', 'Internetr', 'Ügyfélkód']
+        expected_output = ['Kormányok', 'Kormányon', 'Kormányos', 'hibaablak', 'Kormánymű', 'Telefonok', 'Telefonon',
+                           'Ügyfélkör', 'Telefonos', 'Internetr']
         previous_guesses = {}
         model_output = self.bert_guesser.make_guess(contexts, len(selected_word), number_of_subwords,
                                                     previous_guesses=previous_guesses,
                                                     retry_wrong=False)
         self.assertEqual(model_output, expected_output)
+
+
+class GensimTest(unittest.TestCase):
+    pass
 
 
 if __name__ == '__main__':

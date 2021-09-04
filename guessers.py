@@ -24,7 +24,7 @@ class BertGuesser:
         :param wordlist_fn: If there is no trie supplemented, it will be created based on this file.
         """
 
-        if 'models' in os.listdir('./'):
+        if os.path.isdir('models/hubert-base-cc'):
             self.tokenizer = transformers.AutoTokenizer.from_pretrained('models/hubert-base-cc', lowercase=True)
             self.model = transformers.BertForMaskedLM.from_pretrained('models/hubert-base-cc', return_dict=True)
         else:
@@ -36,6 +36,7 @@ class BertGuesser:
             self.tokenizer.save_pretrained('models/hubert-base-cc')
             self.model.save_pretrained('models/hubert-base-cc')
 
+        self.model.eval()  # sets BERT in eval mode, which is deterministic
         self.word_trie = self._create_trie(trie_fn, wordlist_fn)
         self.starting_words = {id_: word for word, id_ in self.tokenizer.vocab.items() if word.isalpha()}
         self.center_words = {id_: word for word, id_ in self.tokenizer.vocab.items() if word[0:2] == '##'}
@@ -219,3 +220,12 @@ class DummyGuesser:
     @staticmethod
     def make_guess(top_n: int = 10, *_, **__) -> List[str]:
         return ['_'] * top_n
+
+
+def download():
+    BertGuesser()
+
+
+if __name__ == '__main__':
+    # just download and build everything if the module is not imported
+    download()
