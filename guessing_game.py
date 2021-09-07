@@ -73,7 +73,7 @@ class Game:
         with open(filename) as infile:
             csv_reader = csv.reader(infile)
             for word, freq in csv_reader:
-                if int(freq) < min_threshold or not word.isalpha() or len(word) <= 5:
+                if int(freq) < min_threshold or len(word) <= 5:
                     continue
                 else:
                     c[word] = int(freq)
@@ -92,7 +92,7 @@ class Game:
         """
         with open(fname) as f:
             for line in f:
-                sentence = line.strip().split(' ')
+                sentence = line.strip().lower().split(' ')
                 if word in sentence:
                     if full_sentence:
                         yield line.strip()
@@ -125,7 +125,7 @@ class Game:
         """
 
         selected_word, selected_input_ids = '', []
-        while len(selected_input_ids) != number_of_subwords:
+        while not (len(selected_input_ids) == number_of_subwords):
             selected_word = random.choice(list(self.counter.keys()))
             selected_input_ids = self.tokenizer(selected_word, add_special_tokens=False)['input_ids']
 
@@ -151,7 +151,7 @@ class Game:
 
         if not user_guessed:
             user_input = input('Please input your guess: ').strip()
-            if self.similarity_helper:
+            if self.similarity_helper and user_input:
                 # if there is a similarity helper
                 similarity = self.similarity_helper.word_similarity(selected_word, user_input)
                 # similarity is -1 by either the model not containing one of the words
@@ -167,14 +167,18 @@ class Game:
                 user_guessed = True
                 print(f'Your guess ({user_input}) was correct.')
 
-        print(f'Computer\'s guess is {"".join(computer_guesses[:1])}')
+        print(f'Computer\'s guess is {computer_guesses[0]}')
 
         if show_model_output:
             print(f'Computer\'s top 10 guesses: {" ".join(computer_guesses[:10])}')
 
         computer_guess = computer_guesses[0] if len(computer_guesses) > 0 else ''
 
-        if not computer_guessed:
+        if computer_guess == '_' or len(sentences) > 10:  # if the computer takes too long to figure it out
+            print('Computer gave up.')
+            computer_guessed = True
+
+        if not computer_guessed and computer_guess != '_':
             computer_guessed = computer_guess == selected_word
             if computer_guessed:
                 print('Computer guessed the word.')
@@ -216,7 +220,7 @@ class Game:
         human_contexts = []
         computer_contexts = []
 
-        # print(selected_word)
+        print(selected_word)
         print(len(selected_word), selected_wordids, self.counter[selected_word])
 
         for i, original_sentence in enumerate(self._line_yielder(self.corp_fn, selected_word, full_sentence)):
@@ -250,9 +254,12 @@ class Game:
 
 if __name__ == '__main__':
     computer_guesser = guessers.BertGuesser()
+    print('Guesser loaded!')
     guess_helper = helper.GensimHelper()
+    print('Helper loaded!')
     game = Game('resources/freqs.csv', 'resources/tokenized_100k_corp.spl', guesser=computer_guesser,
                 sim_helper=guess_helper)
+    print('Game handler loaded!')
     game_lengths = [game.guessing_game(show_model_output=True, full_sentence=False, number_of_subwords=i)
-                    for i in [1, 2]]
+                    for i in [1, 1, 2]]
     print(game_lengths)

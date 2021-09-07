@@ -1,17 +1,16 @@
 import os
 import pickle
-from typing import List, Iterable
 import numpy as np
 import torch
 import torch.nn.functional as F
 import transformers
-from utils.trie import Trie
 import tqdm
 import gensim
+
+from typing import List, Iterable, Tuple
 from collections import defaultdict
-
-
-# needs trie node for the pickled object
+from utils.trie import Trie
+from transformers.tokenization_utils_base import PreTrainedTokenizerBase
 
 
 class BertGuesser:
@@ -19,29 +18,19 @@ class BertGuesser:
     def __init__(self, trie_fn: str = 'trie_words.pickle', wordlist_fn: str = 'resources/wordlist_3M.csv'):
         """
         Bert guesser class. Upon receiving a context, it returns guesses based on the Trie of available words.
+
         :param trie_fn: Filename for the tree. If the file is not available, it will be used as an output and a trie
         will be created at `trie_fn` location.
         :param wordlist_fn: If there is no trie supplemented, it will be created based on this file.
         """
 
-        if os.path.isdir('models/hubert-base-cc'):
-            self.tokenizer = transformers.AutoTokenizer.from_pretrained('models/hubert-base-cc', lowercase=True)
-            self.model = transformers.BertForMaskedLM.from_pretrained('models/hubert-base-cc', return_dict=True)
-        else:
-            # when first downloading the model, we save it, so we don't need internet no more
-            self.tokenizer = transformers.AutoTokenizer.from_pretrained('SZTAKI-HLT/hubert-base-cc', lowercase=True)
-            self.model = transformers.BertForMaskedLM.from_pretrained('SZTAKI-HLT/hubert-base-cc', return_dict=True)
-            if 'models' not in os.listdir('./'):
-                os.mkdir('models')
-            self.tokenizer.save_pretrained('models/hubert-base-cc')
-            self.model.save_pretrained('models/hubert-base-cc')
-
-        self.model.eval()  # sets BERT in eval mode, which is deterministic
-        self.word_trie = self._create_trie(trie_fn, wordlist_fn)
+        self.tokenizer, self.model, self.word_trie = self.prepare_resources(trie_fn, wordlist_fn)
+        self.model.eval()  # makes output deterministic
         self.starting_words = {id_: word for word, id_ in self.tokenizer.vocab.items() if word.isalpha()}
         self.center_words = {id_: word for word, id_ in self.tokenizer.vocab.items() if word[0:2] == '##'}
 
-    def _create_trie(self, trie_fn: str, wordlist_fn: str) -> Trie:
+    @staticmethod
+    def _create_trie(trie_fn: str, wordlist_fn: str, tokenizer: PreTrainedTokenizerBase) -> Trie:
 
         if 'models' in os.listdir('./'):
             if trie_fn in os.listdir(f'models/'):
@@ -53,8 +42,8 @@ class BertGuesser:
                 #  wordlist_tokenized always exists
                 with open(wordlist_fn) as infile:
                     for line in tqdm.tqdm(infile, desc='Building trie... '):
-                        if 1 < len(line) < 16:
-                            word = self.tokenizer(line.strip(), add_special_tokens=False)['input_ids']
+                        if len(line):
+                            word = tokenizer(line.strip(), add_special_tokens=False)['input_ids']
                             word_trie.insert(word)
                 with open(f'models/{trie_fn}', 'wb') as outfile:
                     pickle.dump(word_trie, outfile)
@@ -91,7 +80,7 @@ class BertGuesser:
             mask_loc = context.index(missing_token)
             unk_context = context[:mask_loc] + number_of_subwords * [self.tokenizer.mask_token] + context[mask_loc + 1:]
             bert_context = self.tokenizer(' '.join(unk_context))['input_ids']
-            softmax = self._get_probabilities(self.tokenizer.decode(bert_context))
+            softmax = self._get_probabilities(self.tokenizer.decode(bert_context, clean_up_tokenization_spaces=True))
             softmax_tensors.append(softmax)
 
         return softmax_tensors
@@ -161,10 +150,35 @@ class BertGuesser:
         argsorted_probabilities = np.argsort(-word_probabilities)
         for idx in argsorted_probabilities:
             candidate = candidates[idx]
-            word = self.tokenizer.decode(candidate)
+            word = self.tokenizer.decode(candidate, clean_up_tokenization_spaces=True)
             if len(word) == target_word_length and word.isalpha():
                 # somehow BERT loves making multi-words with hyphens
                 yield word
+
+    @staticmethod
+    def prepare_resources(trie_fn: str, wordlist_fn: str) -> Tuple:
+        """
+        Prepares resources by downloading and saving the transformer models and by creating (or loading) the word trie.
+
+        :param trie_fn: Filename for the trie. If does not exist, will create it from `wordlist_fn`.
+        :param wordlist_fn: Filename for the wordlist. Only used if the trie does not exist.
+        :return: A 3-long tuple containing a tokenizer, model and word trie.
+        """
+        if os.path.isdir('models/hubert-base-cc'):
+            tokenizer = transformers.AutoTokenizer.from_pretrained('models/hubert-base-cc', lowercase=True)
+            model = transformers.BertForMaskedLM.from_pretrained('models/hubert-base-cc', return_dict=True)
+        else:
+            # when first downloading the model, we save it, so we don't need internet no more
+            tokenizer = transformers.AutoTokenizer.from_pretrained('SZTAKI-HLT/hubert-base-cc', lowercase=True)
+            model = transformers.BertForMaskedLM.from_pretrained('SZTAKI-HLT/hubert-base-cc', return_dict=True)
+            if 'models' not in os.listdir('./'):
+                os.mkdir('models')
+            tokenizer.save_pretrained('models/hubert-base-cc')
+            model.save_pretrained('models/hubert-base-cc')
+
+        word_trie = BertGuesser._create_trie(trie_fn, wordlist_fn, tokenizer)
+
+        return tokenizer, model, word_trie
 
 
 class GensimGuesser:
@@ -223,7 +237,7 @@ class DummyGuesser:
 
 
 def download():
-    BertGuesser()
+    BertGuesser.prepare_resources('trie_words.pickle', 'resources/wordlist_3M.csv')
 
 
 if __name__ == '__main__':

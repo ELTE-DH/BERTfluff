@@ -16,7 +16,6 @@ class GensimHelper:
         """
         for word in [word_1, word_2]:
             if word not in self.model.wv:
-                print(f'{word} not in vocabulary!')
                 return -1.0
 
         return self.model.wv.similarity(word_1, word_2)

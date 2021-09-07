@@ -24,7 +24,7 @@ venv:
 .PHONY: venv
 
 download:
-	@[ -d models ] || mkdir -v models
+	@mkdir -pv models
 	@$(VENVPYTHON) guessers.py
 	@wget https://nessie.ilab.sztaki.hu/~levai/hungarian_wv_models/hu_wv.gensim -nc --directory-prefix models
 	@wget https://nessie.ilab.sztaki.hu/~levai/hungarian_wv_models/hu_wv.gensim.syn1neg.npy -nc --directory-prefix models
