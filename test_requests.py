@@ -1,7 +1,8 @@
-import requests
+import requests.utils
+
+from utils.misc import bert_get_convert
 
 if __name__ == '__main__':
-
     top_n = 10
     missing_token = 'MISSING'
     retry_wrong = False
@@ -30,3 +31,27 @@ if __name__ == '__main__':
 
     print(output_2)
     print(output_2.json())
+
+    url_extension_1 = bert_get_convert(context_1, word_length, number_of_subwords, previous_guesses, retry_wrong, top_n,
+                                       missing_token)
+
+    print(url_extension_1)
+
+    output_3 = requests.get(f'http://127.0.0.1:5000/bertget/{url_extension_1}')
+
+    print(output_3)
+    print(output_3.json())
+
+    context_2 = [
+        ['Nyugalmuk', 'sokszor', 'békés', 'alvásba', 'MISSING', ',', 'rengeteget', 'pihennek', ',', 'komótos'],
+        ['szélén', '–', 'ahol', 'rengeteg', 'kullancs', 'MISSING', 'elő', ',', 'akkor', 'lehet', ',']]
+
+    previous_guesses_2 = {'került', 'fordul'}
+
+    url_extension_2 = bert_get_convert(context_2, word_length, number_of_subwords, previous_guesses_2, retry_wrong,
+                                       top_n, missing_token)
+
+    output_4 = requests.get(f'http://127.0.0.1:5000/bertget/{url_extension_2}')
+
+    print(output_4)
+    print(output_4.json())
