@@ -86,13 +86,13 @@ class Game:
         and when finds a sentence containing the token, it yields the sentence.
         :param window_size: Size of the window.
         :param fname: corpus file in spl format
-        :param word:
-        :param full_sentence:
+        :param word: word
+        :param full_sentence: whether to return full sentence or only a context
         :return: A generator generating sentences or contexts
         """
         with open(fname) as f:
             for line in f:
-                sentence = line.strip().lower().split(' ')
+                sentence = line.strip().split(' ')
                 if word in sentence:
                     if full_sentence:
                         yield line.strip()
@@ -125,7 +125,7 @@ class Game:
         """
 
         selected_word, selected_input_ids = '', []
-        while not (len(selected_input_ids) == number_of_subwords):
+        while len(selected_input_ids) != number_of_subwords:
             selected_word = random.choice(list(self.counter.keys()))
             selected_input_ids = self.tokenizer(selected_word, add_special_tokens=False)['input_ids']
 
@@ -205,7 +205,7 @@ class Game:
         return masked_sentence, ' '.join(current_sentence)
 
     def guessing_game(self, show_model_output: bool = True, full_sentence: bool = False,
-                      number_of_subwords: int = 1) -> dict:
+                      number_of_subwords: int = 1, debug: bool = False) -> dict:
         """
         Provides the interface for the game.
 
@@ -220,7 +220,9 @@ class Game:
         human_contexts = []
         computer_contexts = []
 
-        print(selected_word)
+        if debug:
+            print(selected_word)
+
         print(len(selected_word), selected_wordids, self.counter[selected_word])
 
         for i, original_sentence in enumerate(self._line_yielder(self.corp_fn, selected_word, full_sentence)):
@@ -260,6 +262,6 @@ if __name__ == '__main__':
     game = Game('resources/freqs.csv', 'resources/tokenized_100k_corp.spl', guesser=computer_guesser,
                 sim_helper=guess_helper)
     print('Game handler loaded!')
-    game_lengths = [game.guessing_game(show_model_output=True, full_sentence=False, number_of_subwords=i)
+    game_lengths = [game.guessing_game(show_model_output=True, full_sentence=False, number_of_subwords=i, debug=True)
                     for i in [1, 1, 2]]
     print(game_lengths)

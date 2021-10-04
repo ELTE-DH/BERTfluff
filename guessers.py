@@ -1,16 +1,17 @@
 import os
 import pickle
+from collections import defaultdict
+from typing import List, Iterable, Tuple
+
+import gensim
 import numpy as np
 import torch
 import torch.nn.functional as F
-import transformers
 import tqdm
-import gensim
-
-from typing import List, Iterable, Tuple
-from collections import defaultdict
-from utils.trie import Trie
+import transformers
 from transformers.tokenization_utils_base import PreTrainedTokenizerBase
+
+from utils.trie import Trie
 
 
 class BertGuesser:
@@ -210,18 +211,25 @@ class GensimGuesser:
         """
 
         fixed_contexts = [self._create_compatible_context(context, missing_token) for context in contexts]
-        probabilities = defaultdict(lambda: 1.0)
+        probabilities = defaultdict(lambda x: float(1.0))
 
         first_round = True
         for context in fixed_contexts:
-            for word, prob in self.model.predict_output_word(context, 1_000_000):
-                # The only correct words are
-                if len(word) == word_length and (word in probabilities or first_round) and (
-                        word not in previous_guesses or retry_wrong):
-                    probabilities[word] *= prob
-            first_round = False
+            if first_round:
+                # We build the initial wordlist from the first guess, and we filter it in the following guesses.
+                for word, prob in self.model.predict_output_word(context, 10_000):
+                    if len(word) == word_length and (word not in previous_guesses or retry_wrong):
+                        probabilities[word] = prob
+                first_round = False
+            else:
+                output_dict = dict(self.model.predict_output_word(context, 10_000))
+                for word in probabilities:
+                    if word in output_dict:
+                        probabilities[word] *= output_dict[word]
+                    else:
+                        probabilities[word] = 0
 
-        retval = [word for word, _ in sorted(probabilities.items(), key=lambda x: x[1], reverse=True)][:top_n]
+        retval = [word for word, _ in sorted(probabilities.items(), key=lambda x: (x[1], x[0]), reverse=True)][:top_n]
 
         return retval
 

@@ -35,7 +35,7 @@ if __name__ == '__main__':
     url_extension_1 = bert_get_convert(context_1, word_length, number_of_subwords, previous_guesses, retry_wrong, top_n,
                                        missing_token)
 
-    print(url_extension_1)
+    # print(url_extension_1)
 
     output_3 = requests.get(f'http://127.0.0.1:5000/bertget/{url_extension_1}')
 
@@ -55,3 +55,12 @@ if __name__ == '__main__':
 
     print(output_4)
     print(output_4.json())
+
+    output_5 = requests.post('http://127.0.0.1:5000/cbowguess',
+                             json={'contexts': context_2, 'word_length': word_length,
+                                   'number_of_subwords': number_of_subwords,
+                                   'previous_guesses': previous_guesses,
+                                   'retry_wrong': retry_wrong, 'top_n': top_n, 'missing_token': missing_token})
+
+    print(output_5)
+    print(output_5.json())

@@ -1,5 +1,6 @@
 import csv
-from collections import defaultdict
+import os
+from collections import Counter
 
 
 def create_counters(corp_fp: str, wordlist_fp: str):
@@ -7,27 +8,27 @@ def create_counters(corp_fp: str, wordlist_fp: str):
 
     Creates helper files based on an spl file.
 
-    :param corp_fp:
-    :param wordlist_fp:
+    :param corp_fp: Path to corpus.
+    :param wordlist_fp: Path to wordlist.
     :return:
     """
 
-    counter = defaultdict(int)
-    with open(corp_fp) as infile:
+    counter = Counter()
+    with open(os.path.expanduser(corp_fp)) as infile:
         for line in infile:
             for word in line.strip().split(' '):
-                counter[word.lower()] += 1
+                counter[word] += 1
 
-    with open(wordlist_fp, 'w') as outfile:
+    with open(os.path.expanduser(wordlist_fp), 'w') as outfile:
         csv_writer = csv.writer(outfile)
-        for word, freq in sorted(counter.items(), key=lambda x: x[1], reverse=True):
-            if word.isalpha():
-                csv_writer.writerow([word, freq])
+        for word, freq in sorted(counter.items(), key=lambda x: (x[1], x[0]), reverse=True):
+            csv_writer.writerow([word, freq])
 
 
 def filter_wordlist(in_fp: str, out_fp: str):
     """
-    Filters a wordlist. A wordlist is only accessed by the guesser to build the tree.
+    Filters a wordlist. A wordlist is only accessed by the guesser to build the tree, thus can be provided from a
+    much larger corpus than the guessing game's corpus.
 
     :param in_fp: Input filepath.
     :param out_fp: Output filepath.
@@ -37,9 +38,10 @@ def filter_wordlist(in_fp: str, out_fp: str):
     words = set()
 
     with open(in_fp) as infile:
-        for word in map(str.strip, infile):
-            if word.isalpha():
-                words.add(word.lower())
+        for line in infile:
+            word = line.strip()
+            if word.isalpha() and word.islower():
+                words.add(word)
 
     with open(out_fp, 'w') as outfile:
         for word in sorted(words):
