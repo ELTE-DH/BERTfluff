@@ -1,14 +1,10 @@
-import os
-import transformers
-from collections import Counter
 import csv
 import random
-import torch
-import torch.nn.functional as F
-from typing import Generator, List, Iterable
-import pickle
-from utils.trie import Trie, TrieNode
-import numpy as np
+from collections import Counter
+from typing import Generator, List, Tuple
+import transformers
+import guessers
+import helper
 
 
 # suppress warning, only complain when halting
@@ -22,7 +18,7 @@ def create_corpora():
     c = Counter()
     sentences = set()
     dupes = 0
-    with open('100k_tok.spl') as infile, open('tokenized_100k_corp.spl', 'w') as outfile:
+    with open('resources/100k_tok.spl') as infile, open('resources/tokenized_100k_corp.spl', 'w') as outfile:
         for line in infile:
             if line[0] == '#':
                 continue
@@ -39,20 +35,10 @@ def create_corpora():
 
     print(f'There were {dupes} duplicated sentences.')
 
-    with open('freqs.csv', 'w') as outfile:
+    with open('resources/freqs.csv', 'w') as outfile:
         csv_writer = csv.writer(outfile)
         for word, freq in sorted(c.items(), key=lambda x: x[1], reverse=True):
             csv_writer.writerow([word, freq])
-
-
-def tokenize_wpl_file(infilename: str, outfilename: str):
-    tokenizer = transformers.AutoTokenizer.from_pretrained('models/hubert-base-cc', lowercase=True)
-
-    with open(infilename) as infile, open(outfilename, 'w') as outfile:
-        csv_writer = csv.writer(outfile)
-        for line in infile:
-            input_ids = tokenizer(line, add_special_tokens=False)['input_ids']
-            csv_writer.writerow([line.strip(), ' '.join(map(str, input_ids))])
 
 
 def create_aligned_text(sentences: List[str]) -> List[str]:
@@ -61,81 +47,22 @@ def create_aligned_text(sentences: List[str]) -> List[str]:
     return [' ' * (zero_point - position) + sentence for position, sentence in zip(hashmark_positions, sentences)]
 
 
-def increment_list_index(lst: list, index) -> list:
-    new_lst = lst.copy()
-    new_lst[index] += 1
-    return new_lst
-
-
-def traverse_dims(lst: list, max_id: int) -> List[List]:
-    candidates = []
-    for i, elem in enumerate(lst):
-        if elem < max_id:
-            candidates.append(increment_list_index(lst, i))
-        else:
-            continue
-
-    return candidates
-
-
-def traverse_restricted(lst: list, max_ids: List[int]) -> List[List]:
-    candidates = []
-    for i, elem in enumerate(lst):
-        if elem < max_ids[i]:
-            candidates.append(increment_list_index(lst, i))
-        else:
-            continue
-    return candidates
-
-
 class Game:
-    if 'models' in os.listdir('./'):
-        tokenizer = transformers.AutoTokenizer.from_pretrained('models/hubert-base-cc', lowercase=True)
-        model = transformers.BertForMaskedLM.from_pretrained('models/hubert-base-cc', return_dict=True)
-    else:
-        # if used with the online model, it will only start if internet is available due to checking the online cache
-        # for a new model
-        tokenizer = transformers.AutoTokenizer.from_pretrained('SZTAKI-HLT/hubert-base-cc', lowercase=True)
-        model = transformers.BertForMaskedLM.from_pretrained('SZTAKI-HLT/hubert-base-cc', return_dict=True)
-        os.mkdir('models')
-        tokenizer.save_pretrained('models/hubert-base-cc')
-        model.save_pretrained('models/hubert-base-cc')
-
-    def __init__(self, freqs_fn: str, corp_fn: str, word_list_fn: str, trie_fn: str = 'models/trie_words.pickle'):
+    def __init__(self, freqs_fn: str, corp_fn: str, guesser, sim_helper: helper.GensimHelper = None):
         """
 
         :param freqs_fn: Word frequencies to choose.
         :param corp_fn: Corpus in SPL format.
-        :param word_list_fn: File containing one word per line.
         :return:
         """
-        self.counter = self.create_counter(filename=freqs_fn)
+        self.counter = self._create_counter(filename=freqs_fn)
         self.corp_fn = corp_fn
-        try:
-            with open(trie_fn, 'rb') as infile:
-                self.word_trie: Trie = pickle.load(infile)
-        except FileNotFoundError:
-            print(f'Trie model file not found at {trie_fn} location, creating one.')
-            self.word_trie = Trie()
-            #  wordlist_tokenized always exists
-            with open('wordlist_tokenized.csv') as infile:
-                csv_reader = csv.reader(infile)
-                for text, word in csv_reader:
-                    if len(word) == 0:
-                        continue
-                    word = list(map(int, word.split(' ')))
-                    if len(word) > 10:
-                        continue
-                    self.word_trie.insert(word)
-            with open(trie_fn, 'wb') as outfile:
-                pickle.dump(self.word_trie, outfile)
-            print(f'Trie model created at {trie_fn} location.')
-
-        self.starting_words = {id_: word for word, id_ in self.tokenizer.vocab.items() if word.isalpha()}
-        self.center_words = {id_: word for word, id_ in self.tokenizer.vocab.items() if word[0:2] == '##'}
+        self.guesser = guesser
+        self.tokenizer = transformers.AutoTokenizer.from_pretrained('models/hubert-base-cc', lowercase=True)
+        self.similarity_helper = sim_helper
 
     @staticmethod
-    def create_counter(filename: str, min_threshold: int = 30) -> Counter:
+    def _create_counter(filename: str, min_threshold: int = 30) -> Counter:
         """
 
         :param filename:
@@ -146,21 +73,21 @@ class Game:
         with open(filename) as infile:
             csv_reader = csv.reader(infile)
             for word, freq in csv_reader:
-                if int(freq) < min_threshold or not word.isalpha() or len(word) <= 5:
+                if int(freq) < min_threshold or len(word) <= 5:
                     continue
                 else:
                     c[word] = int(freq)
         return c
 
-    def line_yielder(self, fname: str, word: str, full_sentence: bool,
-                     window_size: int = 5) -> Generator[str, None, None]:
+    def _line_yielder(self, fname: str, word: str, full_sentence: bool,
+                      window_size: int = 5) -> Generator[str, None, None]:
         """
         With a word_id, it starts tokenizing the corpora (which is fast, hence not precomputed),
         and when finds a sentence containing the token, it yields the sentence.
         :param window_size: Size of the window.
         :param fname: corpus file in spl format
-        :param word:
-        :param full_sentence:
+        :param word: word
+        :param full_sentence: whether to return full sentence or only a context
         :return: A generator generating sentences or contexts
         """
         with open(fname) as f:
@@ -170,12 +97,12 @@ class Game:
                     if full_sentence:
                         yield line.strip()
                     else:
-                        yield self.create_context(sentence, word, window_size)
+                        yield self._create_context(sentence, word, window_size)
                 else:
                     continue
 
     @staticmethod
-    def create_context(sentence: List[str], target_word: str, window_size: int = 5) -> str:
+    def _create_context(sentence: List[str], target_word: str, window_size: int = 5) -> str:
         """
         In order to create a not subword-based context, we have to first reconstruct the original sentence,
         then find the word containing the subword, then rebuild and return the context.
@@ -189,171 +116,138 @@ class Game:
 
         return ' '.join(sentence[max(0, center - window_size):min(len(sentence), center + window_size + 1)])
 
-    def get_probabilities(self, masked_text: str) -> torch.Tensor:
+    def _select_word(self, number_of_subwords: int) -> Tuple[str, list]:
         """
-        Creates the tensor from masked text.
-        :param masked_text:
+        Selects a word from the self.counter dictionary.
+
+        :param number_of_subwords:
         :return:
         """
 
-        tokenized_text = self.tokenizer(masked_text, return_tensors='pt')
-        mask_index = torch.where(tokenized_text['input_ids'][0] == self.tokenizer.mask_token_id)
-        output = self.model(**tokenized_text)
-        softmax = F.softmax(output.logits, dim=-1)
-        probability_vector = softmax[0, mask_index[0], :]  # this is the probability vector for the masked WP's position
-        return probability_vector
+        selected_word, selected_input_ids = '', []
+        while len(selected_input_ids) != number_of_subwords:
+            selected_word = random.choice(list(self.counter.keys()))
+            selected_input_ids = self.tokenizer(selected_word, add_special_tokens=False)['input_ids']
 
-    def calculate_softmax_from_context(self, contexts: List[List[str]], number_of_subwords: int,
-                                       missing_token: str = 'MISSING') -> List[torch.Tensor]:
+        return selected_word, selected_input_ids
+
+    def _user_experience(self, selected_word: str, sentences: List[str], user_guessed: bool,
+                         computer_guessed: bool, show_model_output: bool,
+                         computer_guesses: List[str]) -> Tuple[bool, bool]:
         """
-        Calculates the softmax tensors for a given lsit of contexts.
-        :param missing_token: The name of the missing token.
-        :param contexts: Multiple contexts, where one context is a list of strings, with the mask word being MISSING.
-        :param number_of_subwords: Number of subwords in the `missing_token` location
-        :return: Softmax tensors for each context
-        """
+        Provides the user experience.
 
-        softmax_tensors = []
-        for context in contexts:
-            mask_loc = context.index(missing_token)
-            unk_context = context[:mask_loc] + number_of_subwords * [self.tokenizer.mask_token] + context[mask_loc+1:]
-            bert_context = self.tokenizer(' '.join(unk_context))['input_ids']
-            softmax = self.get_probabilities(self.tokenizer.decode(bert_context))
-            softmax_tensors.append(softmax)
-
-        return softmax_tensors
-
-    def calculate_guess(self, softmax_tensors: List[torch.Tensor], word_length: int,
-                        previous_guesses: Iterable, retry_wrong: bool = False, top_n: int = 10) -> List[str]:
-
-        probability_tensor = torch.stack(softmax_tensors, dim=2)
-        joint_probabilities = torch.prod(probability_tensor, dim=2)
-
-        # length_combinations = self.knapsack_length(total_length=word_length, number_of_subwords=number_of_subwords)
-
-        guess_iterator = self.softmax_iterator(joint_probabilities, target_word_length=word_length)
-        guesses = []
-        for guess in guess_iterator:
-            if retry_wrong:
-                guesses.append(guess)
-            else:
-                if guess in previous_guesses:
-                    continue
-                else:
-                    guesses.append(guess)
-            if len(guesses) >= top_n:
-                break
-
-        return guesses
-
-    def make_guess(self, contexts: List[List[str]], word_length: int, number_of_subwords: int,
-                   previous_guesses: Iterable[str], retry_wrong: bool, top_n: int = 10) -> List[str]:
-        """
-        Main interface for the game. Processes list of words.
-        :param contexts: contexts
-        :param word_length: length of the missing word
-        :param number_of_subwords: number of subwords to guess
-        :param previous_guesses: previous guesses
-        :param retry_wrong: whether to retry or discard previous guesses
-        :param top_n: number of guesses
-        :return: BERT guesses in a list
+        :param selected_word: The word missing from the text.
+        :param sentences: Previous sentence already masked with hashmarks.
+        :param user_guessed: Whether the user guessed already or not. If did, then it skips over the user-specific questions.
+        :param computer_guessed: Whether the computer guessed correctly or not. If yes, skips over the computer-specific part.
+        :param show_model_output: If its on, it prints the top 10 guesses of the computer.
+        :param computer_guesses:
+        :return: Length of game for the player and the computer
         """
 
-        softmax_tensors = self.calculate_softmax_from_context(contexts, number_of_subwords)
-        guesses = self.calculate_guess(softmax_tensors, word_length, previous_guesses, retry_wrong, top_n)
-        return guesses
+        print('\n'.join(create_aligned_text(sentences)))
+        print('-' * 80)
 
-    def softmax_iterator(self, probability_tensor: torch.Tensor, target_word_length: int) -> str:
+        if not user_guessed:
+            user_input = input('Please input your guess: ').strip()
+            if self.similarity_helper and user_input:
+                # if there is a similarity helper
+                similarity = self.similarity_helper.word_similarity(selected_word, user_input)
+                # similarity is -1 by either the model not containing one of the words
+                # in case of missing words, the function prints the word missing
+                if similarity != -1.0:
+                    print(f'Your guess has a {similarity:.3f} similarity to the missing word.')
+            if user_input == '':
+                #  if the user gives up, we let go of them -- by setting user guessed to true
+                user_guessed = True
+                print(f'You gave up.')
 
+            if not user_guessed and user_input == selected_word:
+                user_guessed = True
+                print(f'Your guess ({user_input}) was correct.')
+
+        print(f'Computer\'s guess is {computer_guesses[0]}')
+
+        if show_model_output:
+            print(f'Computer\'s top 10 guesses: {" ".join(computer_guesses[:10])}')
+
+        computer_guess = computer_guesses[0] if len(computer_guesses) > 0 else ''
+
+        if computer_guess == '_' or len(sentences) > 10:  # if the computer takes too long to figure it out
+            print('Computer gave up.')
+            computer_guessed = True
+
+        if not computer_guessed and computer_guess != '_':
+            computer_guessed = computer_guess == selected_word
+            if computer_guessed:
+                print('Computer guessed the word.')
+
+        return user_guessed, computer_guessed
+
+    @staticmethod
+    def _mask_sentence(original_sentence: str, missing_word: str) -> Tuple[List[str], str]:
         """
-        Yields a valid guess (regardless of the previous guesses) by taking the joint probabilities and
-        iterating over them in decreasing order of probability.
-        The possible words are ordered into a trie,
-        :param probability_tensor: Tensor containing joint probabilities
-        :param target_word_length: Length of target word.
-        :return: A guess with correct length and affixiation.
+        Masks a sentence in two ways: by replacing the selected word with `MISSING`, which is processed by the guessers
+        and by replacing every character in the missing word with a hashmark.
+        :param original_sentence: The tokenized sentence t omask.
+        :param missing_word: The missing word.
+        :return: The masked sentence to use with a `Guesser` and a pretty sentence for readability.
         """
 
-        length_subwords = probability_tensor.shape[0]
-        probabilities = probability_tensor.detach().numpy()
-        candidates = []
-        for word_id in self.starting_words:
-            current_candidates = [can for can, _ in self.word_trie.query_fixed_depth([word_id], length_subwords)]
-            candidates += current_candidates
+        tokenized_sentence = original_sentence.split(' ')
+        current_sentence = [word if word != missing_word else '#' * len(missing_word) for word in tokenized_sentence]
 
-        word_probabilities = np.prod(np.take(probabilities, candidates), axis=1).flatten()
-        argsorted_probabilities = np.argsort(-word_probabilities)
-        for idx in argsorted_probabilities:
-            candidate = candidates[idx]
-            word = self.tokenizer.decode(candidate)
-            if len(word) == target_word_length and word.isalpha():
-                # somehow BERT loves making multi-words with hyphens
-                yield word
+        mask_loc = tokenized_sentence.index(missing_word)
+        masked_sentence = tokenized_sentence.copy()
+        masked_sentence[mask_loc] = 'MISSING'
 
-    def guessing_game(self, show_bert_output: bool = True, full_sentence: bool = False,
-                      number_of_subwords: int = 1) -> List:
+        return masked_sentence, ' '.join(current_sentence)
+
+    def guessing_game(self, show_model_output: bool = True, full_sentence: bool = False,
+                      number_of_subwords: int = 1, debug: bool = False) -> dict:
         """
         Provides the interface for the game.
-        :return: a list of length 3, containing the number of guesses of the player, BERT and the word missing
+
+        :return: a dictionary of length 3, containing the number of guesses of the player, BERT and the word missing
         """
-        while True:
-            selected_word = random.choice(list(self.counter.keys()))
-            selected_wordids = self.tokenizer(selected_word, add_special_tokens=False)
-            if len(selected_wordids['input_ids']) == number_of_subwords:
-                break
+        selected_word, selected_wordids = self._select_word(number_of_subwords)
 
-        guesses = set()
+        computer_history = set()
         user_guessed = False
-        bert_guessed = False
-        retval = [-1, -1, selected_word]
-        sentences = []
-        contexts = []
+        computer_guessed = False
+        retval = {'user_attempts': -1, 'computer_attempts': -1, 'missing_word': selected_word}
+        human_contexts = []
+        computer_contexts = []
 
-        print(selected_word)
+        if debug:
+            print(selected_word)
+
         print(len(selected_word), selected_wordids, self.counter[selected_word])
 
-        for i, orig_sentence in enumerate(self.line_yielder(self.corp_fn, selected_word, full_sentence)):
-            tokenized_sentence = orig_sentence.split(' ')
-            mask_loc = tokenized_sentence.index(selected_word)
+        for i, original_sentence in enumerate(self._line_yielder(self.corp_fn, selected_word, full_sentence)):
 
-            masked_sentence = tokenized_sentence.copy()
-            masked_sentence[mask_loc] = 'MISSING'
+            computer_masked_sentence, hashmarked_sentence = self._mask_sentence(original_sentence, selected_word)
+            human_contexts.append(hashmarked_sentence)
+            computer_contexts.append(computer_masked_sentence)
+            computer_current_guesses = self.guesser.make_guess(computer_contexts, word_length=len(selected_word),
+                                                               previous_guesses=computer_history,
+                                                               retry_wrong=False,
+                                                               number_of_subwords=len(selected_wordids))
 
-            contexts.append(masked_sentence)
-            bert_guesses = self.make_guess(contexts, word_length=len(selected_word),
-                                           previous_guesses=guesses, retry_wrong=False,
-                                           number_of_subwords=len(selected_wordids['input_ids']))
+            computer_history.add(computer_current_guesses[0])
 
-            # UI
-            current_sentence = orig_sentence.replace(selected_word, '#' * len(selected_word), 1)
-            sentences.append(current_sentence)
-            print('\n'.join(create_aligned_text(sentences)))
-            print('-' * 80)
+            user_guessed, computer_guessed = self._user_experience(selected_word, human_contexts, user_guessed,
+                                                                   computer_guessed, show_model_output,
+                                                                   computer_current_guesses)
 
-            if not user_guessed:
-                user_input = input('Please input your guess: ')
-                if user_input.strip() == selected_word:
-                    user_guessed = True
-                    retval[0] = i + 1
-                elif user_input.strip() == '':
-                    user_guessed = True
+            # We log how many guesses it took for the players.
+            if user_guessed and retval['user_attempts'] == -1:
+                retval['user_attempts'] = i + 1
+            if computer_guessed and retval['computer_attempts'] == -1:
+                retval['computer_attempts'] = i + 1
 
-            print(f'BERT\'s guess is {bert_guesses[:1]}')
-
-            if show_bert_output:
-                print(f'BERT\'s top 10 guesses: {" ".join(bert_guesses[:10])}')
-
-            guess = bert_guesses[0] if len(bert_guesses) > 0 else ''
-
-            if not bert_guessed:
-                if guess == selected_word:
-                    print('BERT guessed the word.')
-                    bert_guessed = True
-                    retval[1] = i + 1
-                else:
-                    guesses.add(guess)
-
-            if bert_guessed and user_guessed:
+            if computer_guessed and user_guessed:
                 return retval
 
         # in case player does not guess it, we return
@@ -361,7 +255,13 @@ class Game:
 
 
 if __name__ == '__main__':
-    game = Game('freqs.csv', 'tokenized_100k_corp.spl', 'wordlist_3M.csv')
-    game_lengths = [game.guessing_game(show_bert_output=True, full_sentence=False, number_of_subwords=i)
-                    for i in range(1, 5)]
+    computer_guesser = guessers.BertGuesser()
+    print('Guesser loaded!')
+    guess_helper = helper.GensimHelper()
+    print('Helper loaded!')
+    game = Game('resources/freqs.csv', 'resources/tokenized_100k_corp.spl', guesser=computer_guesser,
+                sim_helper=guess_helper)
+    print('Game handler loaded!')
+    game_lengths = [game.guessing_game(show_model_output=True, full_sentence=False, number_of_subwords=i, debug=True)
+                    for i in [1, 1, 2]]
     print(game_lengths)
