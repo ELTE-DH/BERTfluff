@@ -1,8 +1,9 @@
-import os
 import pickle
 from collections import defaultdict
+from os import makedirs as os_makedirs
 from typing import List, Iterable, Tuple
 from itertools import islice, chain, repeat
+from os.path import join as os_path_join, isdir as os_path_isdir, isfile as os_path_isfile
 
 import tqdm
 import gensim
@@ -16,55 +17,60 @@ from utils.trie import Trie
 
 class BertGuesser:
 
-    def __init__(self, trie_fn: str = 'trie_words.pickle', wordlist_fn: str = 'resources/wordlist_3M.csv',
-                 models_dir='models'):
+    def __init__(self, trie_fn: str = 'trie_words.pickle', wordlist_fn: str = 'wordlist_3M.csv',
+                 resources_dir: str = 'resources',  models_dir: str = 'models'):
         """
         Bert guesser class. Upon receiving a context, it returns guesses based on the Trie of available words.
 
         :param trie_fn: Filename for the tree. If the file is not available, it will be used as an output and a trie
         will be created at `trie_fn` location.
         :param wordlist_fn: If there is no trie supplemented, it will be created based on this file.
+        :param resources_dir: Thee directory where the resources are stored.
         :param models_dir: Thee directory where the models are stored.
         """
 
-        self.tokenizer, self.model, self.word_trie = self.prepare_resources(trie_fn, wordlist_fn, models_dir)
+        self.tokenizer, self.model, self.word_trie = self.prepare_resources(trie_fn, wordlist_fn, resources_dir,
+                                                                            models_dir)
         self.model.eval()  # makes output deterministic  # TODO Ezt nem lehetne letárolni?
         self.starting_words = {word_id: word for word, word_id in self.tokenizer.vocab.items() if word.isalpha()}
         self.center_words = {word_id: word for word, word_id in self.tokenizer.vocab.items() if word.startswith('##')}
 
     @staticmethod
-    def prepare_resources(trie_fn: str, wordlist_fn: str, models_dir='models') -> Tuple:
+    def prepare_resources(trie_fn: str, wordlist_fn: str, resources_dir: str = 'resources',
+                          models_dir: str = 'models') -> Tuple:
         """
         Prepares resources by downloading and saving the transformer models and by creating (or loading) the word trie.
 
         :param trie_fn: Filename for the trie. If does not exist, will create it from `wordlist_fn`.
         :param wordlist_fn: Filename for the wordlist. Only used if the trie does not exist.
+        :param resources_dir: Thee directory where the resources are stored.
         :param models_dir: Thee directory where the models are stored.
         :return: A 3-long tuple containing a tokenizer, model and word trie.
         """
-        if os.path.isdir(os.path.join(models_dir, 'hubert-base-cc')):
-            tokenizer = transformers.AutoTokenizer.from_pretrained(os.path.join(models_dir, 'hubert-base-cc'),
+        if os_path_isdir(os_path_join(models_dir, 'hubert-base-cc')):
+            tokenizer = transformers.AutoTokenizer.from_pretrained(os_path_join(models_dir, 'hubert-base-cc'),
                                                                    lowercase=True)
-            model = transformers.BertForMaskedLM.from_pretrained(os.path.join(models_dir, 'hubert-base-cc'),
+            model = transformers.BertForMaskedLM.from_pretrained(os_path_join(models_dir, 'hubert-base-cc'),
                                                                  return_dict=True)
         else:
             # When first downloading the model, we save it, so we don't need internet later
             tokenizer = transformers.AutoTokenizer.from_pretrained('SZTAKI-HLT/hubert-base-cc', lowercase=True)
             model = transformers.BertForMaskedLM.from_pretrained('SZTAKI-HLT/hubert-base-cc', return_dict=True)
-            os.makedirs(models_dir, exist_ok=True)  # Do not fail when models directory exists
-            tokenizer.save_pretrained(os.path.join(models_dir, 'hubert-base-cc'))
-            model.save_pretrained(os.path.join(models_dir, 'hubert-base-cc'))
+            os_makedirs(models_dir, exist_ok=True)  # Do not fail when models directory exists
+            tokenizer.save_pretrained(os_path_join(models_dir, 'hubert-base-cc'))
+            model.save_pretrained(os_path_join(models_dir, 'hubert-base-cc'))
 
         # Create trie (assuming models_dir dir exists)
-        trie_fn_path = os.path.join(models_dir, trie_fn)
-        if os.path.isfile(trie_fn_path):
+        trie_fn_path = os_path_join(models_dir, trie_fn)
+        if os_path_isfile(trie_fn_path):
             with open(trie_fn_path, 'rb') as infile:
                 word_trie: Trie = pickle.load(infile)
         else:
-            print(f'Trie model file not found at {trie_fn} location, creating one from {wordlist_fn}.')
+            wordlist_fn_path = os_path_join(resources_dir, wordlist_fn)
+            print(f'Trie model file not found at {trie_fn_path} location, creating one from {wordlist_fn_path}.')
             word_trie = Trie()
             #  wordlist_tokenized always exists  # TODO ez mit jelent?
-            with open(wordlist_fn) as infile:
+            with open(wordlist_fn_path) as infile:
                 for line in tqdm.tqdm(infile, desc='Building trie... '):
                     line = line.rstrip()
                     if len(line) > 0:
@@ -177,7 +183,7 @@ class BertGuesser:
 
 class GensimGuesser:
     def __init__(self, model_fn='hu_wv.gensim', models_dir='models'):
-        self.model = gensim.models.Word2Vec.load(os.path.join(models_dir, model_fn))
+        self.model = gensim.models.Word2Vec.load(os_path_join(models_dir, model_fn))
 
     def make_guess(self, contexts: List[List[str]], word_length: int, number_of_subwords: int,
                    previous_guesses: Iterable[str], retry_wrong: bool, top_n: int = 10,

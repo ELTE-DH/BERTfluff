@@ -1,135 +1,22 @@
-import csv
-import random
-from collections import Counter
-from typing import Generator, List, Tuple
-import transformers
-import guessers
-import helper
 
+from typing import List, Tuple
 
-# suppress warning, only complain when halting
-# transformers.logging.set_verbosity_error()
-
-
-def create_corpora():
-    """
-    Used to create frequency. It also deduplicates in a rudimentary manner.
-    """
-    c = Counter()
-    sentences = set()
-    dupes = 0
-    with open('resources/100k_tok.spl') as infile, open('resources/tokenized_100k_corp.spl', 'w') as outfile:
-        for line in infile:
-            if line[0] == '#':
-                continue
-            sentence = tuple(line.strip().split(' '))
-            if sentence not in sentences:
-                sentences.add(sentence)
-            else:
-                dupes += 1
-                continue
-
-            for token in sentence:
-                c[token] += 1
-            print(line, end='', file=outfile)
-
-    print(f'There were {dupes} duplicated sentences.')
-
-    with open('resources/freqs.csv', 'w') as outfile:
-        csv_writer = csv.writer(outfile)
-        for word, freq in sorted(c.items(), key=lambda x: x[1], reverse=True):
-            csv_writer.writerow([word, freq])
-
-
-def create_aligned_text(sentences: List[str]) -> List[str]:
-    hashmark_positions = [sen.find('#') for sen in sentences]
-    zero_point = max(hashmark_positions)
-    return [' ' * (zero_point - position) + sentence for position, sentence in zip(hashmark_positions, sentences)]
+from helper import GensimHelper
+from guessers import BertGuesser
+from context_bank import ContextBank
 
 
 class Game:
-    def __init__(self, freqs_fn: str, corp_fn: str, guesser, sim_helper: helper.GensimHelper = None):
-        """
-
-        :param freqs_fn: Word frequencies to choose.
-        :param corp_fn: Corpus in SPL format.
-        :return:
-        """
-        self.counter = self._create_counter(filename=freqs_fn)
-        self.corp_fn = corp_fn
+    def __init__(self, freqs_fn: str, corp_fn: str, guesser, sim_helper: GensimHelper = None):
+        self.context_bank = ContextBank(freqs_fn, corp_fn)
         self.guesser = guesser
-        self.tokenizer = transformers.AutoTokenizer.from_pretrained('models/hubert-base-cc', lowercase=True)
         self.similarity_helper = sim_helper
 
     @staticmethod
-    def _create_counter(filename: str, min_threshold: int = 30) -> Counter:
-        """
-
-        :param filename:
-        :param min_threshold:
-        :return:
-        """
-        c = Counter()
-        with open(filename) as infile:
-            csv_reader = csv.reader(infile)
-            for word, freq in csv_reader:
-                if int(freq) < min_threshold or len(word) <= 5:
-                    continue
-                else:
-                    c[word] = int(freq)
-        return c
-
-    def _line_yielder(self, fname: str, word: str, full_sentence: bool,
-                      window_size: int = 5) -> Generator[str, None, None]:
-        """
-        With a word_id, it starts tokenizing the corpora (which is fast, hence not precomputed),
-        and when finds a sentence containing the token, it yields the sentence.
-        :param window_size: Size of the window.
-        :param fname: corpus file in spl format
-        :param word: word
-        :param full_sentence: whether to return full sentence or only a context
-        :return: A generator generating sentences or contexts
-        """
-        with open(fname) as f:
-            for line in f:
-                sentence = line.strip().split(' ')
-                if word in sentence:
-                    if full_sentence:
-                        yield line.strip()
-                    else:
-                        yield self._create_context(sentence, word, window_size)
-                else:
-                    continue
-
-    @staticmethod
-    def _create_context(sentence: List[str], target_word: str, window_size: int = 5) -> str:
-        """
-        In order to create a not subword-based context, we have to first reconstruct the original sentence,
-        then find the word containing the subword, then rebuild and return the context.
-        :param sentence: list of tokens
-        :param target_word: target word
-        :param window_size: size of the window
-        :return: a part of the original sentence containing the target word in the center
-        """
-
-        center = sentence.index(target_word)  # returns first occurrence
-
-        return ' '.join(sentence[max(0, center - window_size):min(len(sentence), center + window_size + 1)])
-
-    def _select_word(self, number_of_subwords: int) -> Tuple[str, list]:
-        """
-        Selects a word from the self.counter dictionary.
-
-        :param number_of_subwords:
-        :return:
-        """
-
-        selected_word, selected_input_ids = '', []
-        while len(selected_input_ids) != number_of_subwords:
-            selected_word = random.choice(list(self.counter.keys()))
-            selected_input_ids = self.tokenizer(selected_word, add_special_tokens=False)['input_ids']
-
-        return selected_word, selected_input_ids
+    def _create_aligned_text(sentences: List[str]) -> List[str]:
+        hashmark_positions = [sen.find('#') for sen in sentences]
+        zero_point = max(hashmark_positions)
+        return [' ' * (zero_point - position) + sentence for position, sentence in zip(hashmark_positions, sentences)]
 
     def _user_experience(self, selected_word: str, sentences: List[str], user_guessed: bool,
                          computer_guessed: bool, show_model_output: bool,
@@ -148,7 +35,7 @@ class Game:
         :return: Length of game for the player and the computer
         """
 
-        print('\n'.join(create_aligned_text(sentences)))
+        print('\n'.join(self._create_aligned_text(sentences)))
         print('-' * 80)
 
         if not user_guessed:
@@ -187,25 +74,6 @@ class Game:
 
         return user_guessed, computer_guessed
 
-    @staticmethod
-    def _mask_sentence(original_sentence: str, missing_word: str) -> Tuple[List[str], str]:
-        """
-        Masks a sentence in two ways: by replacing the selected word with `MISSING`, which is processed by the guessers
-        and by replacing every character in the missing word with a hashmark.
-        :param original_sentence: The tokenized sentence t omask.
-        :param missing_word: The missing word.
-        :return: The masked sentence to use with a `Guesser` and a pretty sentence for readability.
-        """
-
-        tokenized_sentence = original_sentence.split(' ')
-        current_sentence = [word if word != missing_word else '#' * len(missing_word) for word in tokenized_sentence]
-
-        mask_loc = tokenized_sentence.index(missing_word)
-        masked_sentence = tokenized_sentence.copy()
-        masked_sentence[mask_loc] = 'MISSING'
-
-        return masked_sentence, ' '.join(current_sentence)
-
     def guessing_game(self, show_model_output: bool = True, full_sentence: bool = False,
                       number_of_subwords: int = 1, debug: bool = False) -> dict:
         """
@@ -213,7 +81,7 @@ class Game:
 
         :return: a dictionary of length 3, containing the number of guesses of the player, BERT and the word missing
         """
-        selected_word, selected_wordids = self._select_word(number_of_subwords)
+        selected_word, selected_wordids, selected_word_freq = self.context_bank.select_word(number_of_subwords)
 
         computer_history = set()
         user_guessed = False
@@ -225,11 +93,11 @@ class Game:
         if debug:
             print(selected_word)
 
-        print(len(selected_word), selected_wordids, self.counter[selected_word])
+        print(len(selected_word), selected_wordids, selected_word_freq)
 
-        for i, original_sentence in enumerate(self._line_yielder(self.corp_fn, selected_word, full_sentence)):
+        for i, (original_sentence, (computer_masked_sentence, hashmarked_sentence)) \
+                in enumerate(self.context_bank.line_yielder(selected_word, full_sentence)):
 
-            computer_masked_sentence, hashmarked_sentence = self._mask_sentence(original_sentence, selected_word)
             human_contexts.append(hashmarked_sentence)
             computer_contexts.append(computer_masked_sentence)
             computer_current_guesses = self.guesser.make_guess(computer_contexts, word_length=len(selected_word),
@@ -257,13 +125,13 @@ class Game:
 
 
 if __name__ == '__main__':
-    computer_guesser = guessers.BertGuesser()
+    computer_guesser = BertGuesser()
     print('Guesser loaded!')
-    guess_helper = helper.GensimHelper()
+    guess_helper = GensimHelper()
     print('Helper loaded!')
     game = Game('resources/freqs.csv', 'resources/tokenized_100k_corp.spl', guesser=computer_guesser,
                 sim_helper=guess_helper)
     print('Game handler loaded!')
-    game_lengths = [game.guessing_game(show_model_output=True, full_sentence=False, number_of_subwords=i)
+    game_lengths = [game.guessing_game(number_of_subwords=i)  # show_model_output=True, full_sentence=False,
                     for i in (1, 1, 2)]
     print(game_lengths)

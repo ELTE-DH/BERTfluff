@@ -1,9 +1,11 @@
+from os.path import join as os_path_join
+
 import gensim
 
 
 class GensimHelper:
-    def __init__(self, model_fn='models/hu_wv.gensim'):
-        self.model = gensim.models.Word2Vec.load(model_fn)
+    def __init__(self, model_fn='hu_wv.gensim', models_dir='models'):
+        self.model = gensim.models.Word2Vec.load(os_path_join(models_dir, model_fn))
 
     def word_similarity(self, word_1: str, word_2: str) -> float:
         """
@@ -14,7 +16,7 @@ class GensimHelper:
         :param word_2: The other word
         :return: Similarity of the corresponding word vectors.
         """
-        for word in [word_1, word_2]:
+        for word in (word_1, word_2):
             if word not in self.model.wv:
                 return -1.0
 
