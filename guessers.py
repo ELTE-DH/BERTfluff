@@ -28,7 +28,7 @@ class BertGuesser:
         """
 
         self.tokenizer, self.model, self.word_trie = self.prepare_resources(trie_fn, wordlist_fn, models_dir)
-        self.model.eval()  # makes output deterministic
+        self.model.eval()  # makes output deterministic  # TODO Ezt nem lehetne letárolni?
         self.starting_words = {word_id: word for word, word_id in self.tokenizer.vocab.items() if word.isalpha()}
         self.center_words = {word_id: word for word, word_id in self.tokenizer.vocab.items() if word.startswith('##')}
 
@@ -98,13 +98,13 @@ class BertGuesser:
         """
         Main interface for the game. Processes list of words.
 
-        :param missing_token: String representation of the token marking the place of the guess.
         :param contexts: contexts
         :param word_length: length of the missing word
         :param number_of_subwords: number of subwords to guess
         :param previous_guesses: previous guesses
         :param retry_wrong: whether to retry or discard previous guesses
         :param top_n: number of guesses
+        :param missing_token: String representation of the token marking the place of the guess.
         :return: BERT guesses in a list
         """
 
@@ -188,14 +188,14 @@ class GensimGuesser:
         Takes the top 1_000_000 guesses for each context, creates the intersection of these guesses, and returns
         the word with the highest possibility by taking the product of the possibilities for each context.
 
-        :param missing_token: String representation of the token marking the place of the guess.
         :param contexts: contexts
         :param word_length: length of the missing word
-        :param number_of_subwords: number of subwords to guess, it is unused in this method
+        :param number_of_subwords: number of subwords to guess (not used here)
         :param previous_guesses: previous guesses
         :param retry_wrong: whether to retry or discard previous guesses
         :param top_n: number of guesses
-        :return: guesses in a list
+        :param missing_token: String representation of the token marking the place of the guess.
+        :return: cbow guesses in a list
         """
 
         fixed_contexts = [[word for word in context if word != missing_token] for context in contexts]

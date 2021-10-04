@@ -1,66 +1,72 @@
-import requests.utils
+from copy import deepcopy
+from urllib.parse import urlencode
 
-from utils.misc import bert_get_convert
+import requests
 
-if __name__ == '__main__':
-    top_n = 10
-    missing_token = 'MISSING'
-    retry_wrong = False
+SERVER = 'http://127.0.0.1:5000'
 
-    word_length = 9
-    number_of_subwords = 1
-    previous_guesses = []
+
+def main():
+
+    params = {
+              # 'guesser': guesser_type,
+              # 'contexts[]': [' '.join(context) for context in context_1],
+              'word_len': 9,
+              'no_of_subwords': 1,
+              'prev_guesses[]': [],
+              'retry_wrong': False,
+              'top_n': 10,
+              'missing_token': 'MISSING'
+             }
+
+    ####################################################################################################################
 
     context_1 = [
         ['b)', 'az', 'adatállományok', 'helyreállításának', 'lehetőségét', 'MISSING', 'intézkedésekről', ',', 'ezen',
          'belül', 'a']]
-    output_1 = requests.post('http://127.0.0.1:5000/bertguess',
-                             json={'contexts': context_1, 'word_length': word_length,
-                                   'number_of_subwords': number_of_subwords,
-                                   'previous_guesses': previous_guesses,
-                                   'retry_wrong': retry_wrong, 'top_n': top_n, 'missing_token': missing_token})
 
-    print(output_1)
-    print(output_1.json())
+    params_1 = deepcopy(params)
+    params_1['contexts[]'] = [' '.join(context) for context in context_1]
+    for guesser_type in ('bert', 'cbow'):
+        params_1['guesser'] = guesser_type
+        output_1 = requests.post(f'{SERVER}/guess', json=params_1)
 
-    output_2 = requests.post('http://127.0.0.1:5000/cbowguess',
-                             json={'contexts': context_1, 'word_length': word_length,
-                                   'number_of_subwords': number_of_subwords,
-                                   'previous_guesses': previous_guesses,
-                                   'retry_wrong': retry_wrong, 'top_n': top_n, 'missing_token': missing_token})
+        print('POST', guesser_type, output_1)
+        print(output_1.json())
 
-    print(output_2)
-    print(output_2.json())
+    for guesser_type in ('bert', 'cbow'):
+        params_1['guesser'] = guesser_type
+        output_2 = requests.get(f'{SERVER}/guess?{urlencode(params_1, doseq=True)}')
 
-    url_extension_1 = bert_get_convert(context_1, word_length, number_of_subwords, previous_guesses, retry_wrong, top_n,
-                                       missing_token)
+        print('GET', guesser_type, output_2)
+        print(output_2.json())
 
-    # print(url_extension_1)
-
-    output_3 = requests.get(f'http://127.0.0.1:5000/bertget/{url_extension_1}')
-
-    print(output_3)
-    print(output_3.json())
+    ####################################################################################################################
 
     context_2 = [
         ['Nyugalmuk', 'sokszor', 'békés', 'alvásba', 'MISSING', ',', 'rengeteget', 'pihennek', ',', 'komótos'],
         ['szélén', '–', 'ahol', 'rengeteg', 'kullancs', 'MISSING', 'elő', ',', 'akkor', 'lehet', ',']]
 
-    previous_guesses_2 = {'került', 'fordul'}
+    previous_guesses_2 = ['került', 'fordul']
 
-    url_extension_2 = bert_get_convert(context_2, word_length, number_of_subwords, previous_guesses_2, retry_wrong,
-                                       top_n, missing_token)
+    params_2 = deepcopy(params)
+    params_2['contexts[]'] = [' '.join(context) for context in context_2]
+    params_2['prev_guesses[]'] = previous_guesses_2
 
-    output_4 = requests.get(f'http://127.0.0.1:5000/bertget/{url_extension_2}')
+    for guesser_type in ('bert', 'cbow'):
+        params_2['guesser'] = guesser_type
+        output_3 = requests.post(f'{SERVER}/guess', json=params_2)
 
-    print(output_4)
-    print(output_4.json())
+        print('POST', guesser_type, output_3)
+        print(output_3.json())
 
-    output_5 = requests.post('http://127.0.0.1:5000/cbowguess',
-                             json={'contexts': context_2, 'word_length': word_length,
-                                   'number_of_subwords': number_of_subwords,
-                                   'previous_guesses': previous_guesses,
-                                   'retry_wrong': retry_wrong, 'top_n': top_n, 'missing_token': missing_token})
+    for guesser_type in ('bert', 'cbow'):
+        params_2['guesser'] = guesser_type
+        output_4 = requests.get(f'{SERVER}/guess?{urlencode(params_2, doseq=True)}')
 
-    print(output_5)
-    print(output_5.json())
+        print('GET', guesser_type, output_4)
+        print(output_4.json())
+
+
+if __name__ == '__main__':
+    main()
