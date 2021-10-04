@@ -2,18 +2,8 @@ from flask import Flask, request
 import guessers
 
 app = Flask(__name__)
-try:
-    bert_guesser = guessers.BertGuesser()
-except Exception as e:
-    print(e)
-    bert_guesser = guessers.DummyGuesser()
-
-try:
-    gensim_guesser = guessers.GensimGuesser(model_fn='models/hu_wv.gensim')
-except Exception as e:
-    print(e)
-    print('Gensim guesser is not running, creating a DummyGuesser.')
-    gensim_guesser = guessers.DummyGuesser()
+bert_guesser = guessers.BertGuesser()
+gensim_guesser = guessers.GensimGuesser(model_fn='models/hu_wv.gensim')
 
 
 @app.route('/bertguess', methods=['GET', 'POST'])
