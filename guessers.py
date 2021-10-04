@@ -25,8 +25,8 @@ class BertGuesser:
         :param trie_fn: Filename for the tree. If the file is not available, it will be used as an output and a trie
         will be created at `trie_fn` location.
         :param wordlist_fn: If there is no trie supplemented, it will be created based on this file.
-        :param resources_dir: Thee directory where the resources are stored.
-        :param models_dir: Thee directory where the models are stored.
+        :param resources_dir: The directory where the resources are stored.
+        :param models_dir: The directory where the models are stored.
         """
 
         self.tokenizer, self.model, self.word_trie = self.prepare_resources(trie_fn, wordlist_fn, resources_dir,
@@ -43,8 +43,8 @@ class BertGuesser:
 
         :param trie_fn: Filename for the trie. If does not exist, will create it from `wordlist_fn`.
         :param wordlist_fn: Filename for the wordlist. Only used if the trie does not exist.
-        :param resources_dir: Thee directory where the resources are stored.
-        :param models_dir: Thee directory where the models are stored.
+        :param resources_dir: The directory where the resources are stored.
+        :param models_dir: The directory where the models are stored.
         :return: A 3-long tuple containing a tokenizer, model and word trie.
         """
         if os_path_isdir(os_path_join(models_dir, 'hubert-base-cc')):

@@ -1,26 +1,31 @@
 
 from typing import List, Tuple
 
+from tabulate import tabulate
+
 from helper import GensimHelper
 from guessers import BertGuesser
 from context_bank import ContextBank
 
 
 class Game:
-    def __init__(self, freqs_fn: str, corp_fn: str, guesser, sim_helper: GensimHelper = None):
-        self.context_bank = ContextBank(freqs_fn, corp_fn)
+    def __init__(self, context_bank: ContextBank, guesser, sim_helper: GensimHelper = None):
+        self.context_bank = context_bank
         self.guesser = guesser
         self.similarity_helper = sim_helper
 
     @staticmethod
-    def _create_aligned_text(sentences: List[str]) -> List[str]:
+    def _print_aligned_sentences(sentences: List[str]):
         hashmark_positions = [sen.find('#') for sen in sentences]
         zero_point = max(hashmark_positions)
-        return [' ' * (zero_point - position) + sentence for position, sentence in zip(hashmark_positions, sentences)]
+        aligned_stencences = [' ' * (zero_point - position) + sentence
+                              for position, sentence in zip(hashmark_positions, sentences)]
+        print('\n'.join(aligned_stencences))
+        print('-' * 80)
 
-    def _user_experience(self, selected_word: str, sentences: List[str], user_guessed: bool,
-                         computer_guessed: bool, show_model_output: bool,
-                         computer_guesses: List[str]) -> Tuple[bool, bool]:
+    def _user_experience(self, selected_word: str, sentences: List[str], user_guessed: bool, user_gave_up: bool,
+                         computer_guessed: bool, computer_gave_up: bool, show_model_output: bool,
+                         computer_guesses: List[str]) -> Tuple[bool, bool, bool, bool]:
         """
         Provides the user experience.
 
@@ -28,51 +33,52 @@ class Game:
         :param sentences: Previous sentence already masked with hashmarks.
         :param user_guessed: Whether the user guessed already or not. If did, then it skips over the user-specific
                               questions.
+        :param user_gave_up: Whether the user gave up already or not. If did, then it skips over the user-specific
+                              questions.
         :param computer_guessed: Whether the computer guessed correctly or not. If yes, skips over
                                   the computer-specific part.
+        :param computer_gave_up: Whether the computer gave up or not. If yes, skips over the computer-specific part.
         :param show_model_output: If its on, it prints the top 10 guesses of the computer.
         :param computer_guesses:
         :return: Length of game for the player and the computer
         """
 
-        print('\n'.join(self._create_aligned_text(sentences)))
-        print('-' * 80)
+        self._print_aligned_sentences(sentences)
 
-        if not user_guessed:
+        if not (user_guessed or user_gave_up):
             user_input = input('Please input your guess: ').strip()
-            if self.similarity_helper and user_input:
-                # if there is a similarity helper
-                similarity = self.similarity_helper.word_similarity(selected_word, user_input)
-                # similarity is -1 by either the model not containing one of the words
-                # in case of missing words, the function prints the word missing
-                if similarity != -1.0:
-                    print(f'Your guess has a {similarity:.3f} similarity to the missing word.')
-            if user_input == '':
-                #  if the user gives up, we let go of them -- by setting user guessed to true
-                user_guessed = True
-                print(f'You gave up.')
 
-            if not user_guessed and user_input == selected_word:
+            if self.similarity_helper and user_input:
+                # If there is a similarity helper
+                similarity = self.similarity_helper.word_similarity(selected_word, user_input)
+                # Similarity is -1 if the model not containing either the guessed word or the missing word
+                if similarity > -1.0:
+                    print(f'Your guess has a {similarity:.3f} similarity to the missing word (the higher, the better).')
+
+            if user_input == selected_word:
                 user_guessed = True
                 print(f'Your guess ({user_input}) was correct.')
+            elif user_input == '':
+                #  If the user gives up, we let go of them -- by setting user guessed to true
+                user_gave_up = True
+                print(f'You gave up.')
 
-        print(f'Computer\'s guess is {computer_guesses[0]}')
+        computer_guess = computer_guesses[0] if len(computer_guesses) > 0 else '_'
+
+        print(f'Computer\'s guess is {computer_guess}')
 
         if show_model_output:
             print(f'Computer\'s top 10 guesses: {" ".join(computer_guesses[:10])}')
 
-        computer_guess = computer_guesses[0] if len(computer_guesses) > 0 else ''
-
-        if computer_guess == '_' or len(sentences) > 10:  # if the computer takes too long to figure it out
-            print('Computer gave up.')
+        if computer_guess == selected_word:
+            print('Computer guessed the word.')
             computer_guessed = True
+        elif computer_guess == '_' or len(sentences) > 10:
+            # If the computer gave up or would take too long to figure it out
+            print('Computer gave up.')
+            computer_gave_up = True
 
-        if not computer_guessed and computer_guess != '_':
-            computer_guessed = computer_guess == selected_word
-            if computer_guessed:
-                print('Computer guessed the word.')
-
-        return user_guessed, computer_guessed
+        return user_guessed, user_gave_up, computer_guessed, computer_gave_up
 
     def guessing_game(self, show_model_output: bool = True, full_sentence: bool = False,
                       number_of_subwords: int = 1, debug: bool = False) -> dict:
@@ -82,56 +88,80 @@ class Game:
         :return: a dictionary of length 3, containing the number of guesses of the player, BERT and the word missing
         """
         selected_word, selected_wordids, selected_word_freq = self.context_bank.select_word(number_of_subwords)
-
-        computer_history = set()
-        user_guessed = False
-        computer_guessed = False
-        retval = {'user_attempts': -1, 'computer_attempts': -1, 'missing_word': selected_word}
-        human_contexts = []
-        computer_contexts = []
+        selected_word_len, selected_wordids_len = len(selected_word), len(selected_wordids)
 
         if debug:
-            print(selected_word)
+            print(f'Selected word: {selected_word}')
 
-        print(len(selected_word), selected_wordids, selected_word_freq)
+        print(f'Selected word length: {selected_word_len}')
+        print(f'Selected word word_ids: {selected_wordids}')
+        print(f'Selected word freq: {selected_word_freq}')
 
-        for i, (original_sentence, (computer_masked_sentence, hashmarked_sentence)) \
+        user_guessed, user_gave_up, computer_guessed, computer_gave_up = False, False, False, False
+        retval = {'user_attempts': 0, 'computer_attempts': 0, 'missing_word': selected_word}
+        computer_history, human_contexts, computer_contexts = set(), [], []
+
+        for i, (original_sentence, (hashmarked_sentence, computer_masked_sentence)) \
                 in enumerate(self.context_bank.line_yielder(selected_word, full_sentence)):
 
             human_contexts.append(hashmarked_sentence)
             computer_contexts.append(computer_masked_sentence)
-            computer_current_guesses = self.guesser.make_guess(computer_contexts, word_length=len(selected_word),
+            computer_current_guesses = self.guesser.make_guess(computer_contexts, word_length=selected_word_len,
                                                                previous_guesses=computer_history,
                                                                retry_wrong=False,
-                                                               number_of_subwords=len(selected_wordids))
+                                                               number_of_subwords=selected_wordids_len)
 
             computer_history.add(computer_current_guesses[0])
 
-            user_guessed, computer_guessed = self._user_experience(selected_word, human_contexts, user_guessed,
-                                                                   computer_guessed, show_model_output,
-                                                                   computer_current_guesses)
+            user_guessed, user_gave_up, computer_guessed, computer_gave_up = \
+                self._user_experience(selected_word, human_contexts, user_guessed, user_gave_up, computer_guessed,
+                                      computer_gave_up, show_model_output, computer_current_guesses)
 
-            # We log how many guesses it took for the players.
-            if user_guessed and retval['user_attempts'] == -1:
-                retval['user_attempts'] = i + 1
-            if computer_guessed and retval['computer_attempts'] == -1:
-                retval['computer_attempts'] = i + 1
+            # We log how many guesses it took for the players before wining or giving up
+            retval['user_attempts'] += int(not (user_guessed or user_gave_up))
+            retval['computer_attempts'] += int(not (computer_guessed or computer_gave_up))
 
-            if computer_guessed and user_guessed:
-                return retval
+            # Game ends if the computer has guessed the word (reveals the solution) or
+            #  user guessed the word -> we let the computer try further (guess or give up)
+            #  user gave up -> we let the computer try further (guess or give up)
+            if computer_guessed or (user_guessed and computer_gave_up) or (user_gave_up and computer_gave_up):
+                # Add attempts of guessing the right word (only once) if it were guessed
+                retval['user_attempts'] += int(user_guessed)
+                retval['computer_attempts'] += int(computer_guessed)
+                # Compute winner
+                # User guessed the right word before the computer or the computer gave up when the user guesser right
+                retval['user_won'] = user_guessed and \
+                    (retval['user_attempts'] < retval['computer_attempts'] or computer_gave_up)
+                # The computer guessed the right word before the user (fewer attempts or the user gave up)
+                retval['computer_won'] = computer_guessed and not user_guessed
+                # Both guessed in the same round or both gave up
+                retval['tie'] = (user_gave_up and computer_gave_up) or \
+                    (user_guessed and computer_guessed and retval['user_attempts'] == retval['computer_attempts'])
 
-        # in case player does not guess it, we return
+                break  # End game
+
         return retval
 
 
-if __name__ == '__main__':
+def main():
+    context_bank = ContextBank('resources/freqs.csv', 'resources/tokenized_100k_corp.spl')
+    print('Context Bank loaded!')
     computer_guesser = BertGuesser()
     print('Guesser loaded!')
     guess_helper = GensimHelper()
     print('Helper loaded!')
-    game = Game('resources/freqs.csv', 'resources/tokenized_100k_corp.spl', guesser=computer_guesser,
-                sim_helper=guess_helper)
+    game = Game(context_bank, computer_guesser, sim_helper=guess_helper)
     print('Game handler loaded!')
-    game_lengths = [game.guessing_game(number_of_subwords=i)  # show_model_output=True, full_sentence=False,
-                    for i in (1, 1, 2)]
-    print(game_lengths)
+
+    table = []
+    headers = ['missing_word', 'user_won', 'computer_won', 'tie', 'user_attempts', 'computer_attempts']
+    for i in (1, 1, 2):
+        result = game.guessing_game(number_of_subwords=i)  # show_model_output=True, full_sentence=False
+        table.append([result[key] for key in headers])
+
+    print('', 'Results:', sep='\n')
+    print(tabulate(table, headers, tablefmt='github'))
+
+
+if __name__ == '__main__':
+    main()
