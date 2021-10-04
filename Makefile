@@ -28,7 +28,8 @@ download:
 	@$(VENVPYTHON) guessers.py
 	@wget https://nessie.ilab.sztaki.hu/~levai/hungarian_wv_models/hu_wv.gensim -nc --directory-prefix models
 	@wget https://nessie.ilab.sztaki.hu/~levai/hungarian_wv_models/hu_wv.gensim.syn1neg.npy -nc --directory-prefix models
-	@wget https://nessie.ilab.sztaki.hu/~levai/hungarian_wv_models/hu_wv.gensim.wv.vectors.npy -nc --directory-prefix models
+	@wget https://nessie.ilab.sztaki.hu/~levai/hungarian_wv_models/hu_wv.gensim.wv.vectors.npy -nc \
+           --directory-prefix models
 	@echo "$(GREEN)Models are successfully downloaded and trie successfully build!$(NOCOLOR)"
 	# We can download even larger wordlist here if we find it useful.
 .PHONY: download

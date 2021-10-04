@@ -70,6 +70,5 @@ def cbow_guess():
         return 'This is the CBOW guesser\'s API.'
 
 
-
 if __name__ == '__main__':
     app.run()  # run our Flask app

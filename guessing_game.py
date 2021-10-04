@@ -139,8 +139,10 @@ class Game:
 
         :param selected_word: The word missing from the text.
         :param sentences: Previous sentence already masked with hashmarks.
-        :param user_guessed: Whether the user guessed already or not. If did, then it skips over the user-specific questions.
-        :param computer_guessed: Whether the computer guessed correctly or not. If yes, skips over the computer-specific part.
+        :param user_guessed: Whether the user guessed already or not. If did, then it skips over the user-specific
+                              questions.
+        :param computer_guessed: Whether the computer guessed correctly or not. If yes, skips over
+                                  the computer-specific part.
         :param show_model_output: If its on, it prints the top 10 guesses of the computer.
         :param computer_guesses:
         :return: Length of game for the player and the computer
@@ -262,6 +264,6 @@ if __name__ == '__main__':
     game = Game('resources/freqs.csv', 'resources/tokenized_100k_corp.spl', guesser=computer_guesser,
                 sim_helper=guess_helper)
     print('Game handler loaded!')
-    game_lengths = [game.guessing_game(show_model_output=True, full_sentence=False, number_of_subwords=i, debug=True)
-                    for i in [1, 1, 2]]
+    game_lengths = [game.guessing_game(show_model_output=True, full_sentence=False, number_of_subwords=i)
+                    for i in (1, 1, 2)]
     print(game_lengths)
