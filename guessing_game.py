@@ -102,7 +102,7 @@ class Game:
         computer_history, human_contexts, computer_contexts = set(), [], []
 
         for i, (original_sentence, (hashmarked_sentence, computer_masked_sentence)) \
-                in enumerate(self.context_bank.line_yielder(selected_word, full_sentence)):
+                in enumerate(self.context_bank.get_examples(selected_word, full_sentence)):
 
             human_contexts.append(hashmarked_sentence)
             computer_contexts.append(computer_masked_sentence)

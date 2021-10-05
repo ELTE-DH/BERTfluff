@@ -10,41 +10,10 @@ from transformers import AutoTokenizer
 # transformers.logging.set_verbosity_error()
 
 
-# TODO Ezt nem használja semmi. -> Utilsba?
-def create_corpora(resources_dir: str = 'resources'):
-    """
-    Used to create frequency. It also deduplicates in a rudimentary manner.
-    """
-    c = Counter()
-    sentences = set()
-    dupes = 0
-    with open(os_path_join(resources_dir, '100k_tok.spl'), encoding='UTF-8') as infile, \
-            open(os_path_join(resources_dir, 'tokenized_100k_corp.spl'), 'w', encoding='UTF-8') as outfile:
-        for line in infile:
-            if line[0] == '#':
-                continue
-            sentence = tuple(line.strip().split(' '))
-            if sentence not in sentences:
-                sentences.add(sentence)
-            else:
-                dupes += 1
-                continue
-
-            for token in sentence:
-                c[token] += 1
-            print(line, end='', file=outfile)
-
-    print(f'There were {dupes} duplicated sentences.')
-
-    with open(os_path_join(resources_dir, 'freqs.csv'), 'w', encoding='UTF-8') as outfile:
-        csv_writer = csv.writer(outfile)
-        for line in sorted(c.items(), key=lambda x: (-x[1], x[0])):
-            csv_writer.writerow(line)  # (word, freq)
-
-
 class ContextBank:
     def __init__(self, freqs_fn: str, corp_fn: str, resources_dir: str = 'resources', models_dir: str = 'models'):
         """
+        Interface for selecting words and appropriate contexts for them  # TODO SQL backend?
 
         :param freqs_fn: Word frequencies to choose.
         :param corp_fn: Corpus in SPL format.
@@ -60,6 +29,7 @@ class ContextBank:
     @staticmethod
     def _create_counter(filename: str, min_threshold: int = 30) -> Counter:
         """
+        Create a word frequency counter from file
 
         :param filename:
         :param min_threshold:
@@ -78,6 +48,7 @@ class ContextBank:
     @staticmethod
     def _create_context(word: str, sentence: List[str], window_size: int = 5, line: str = ''):
         """Return a part of the original sentence containing the target word in the center"""
+
         center = sentence.index(word)  # Returns first occurrence
         context = sentence[max(0, center - window_size):min(len(sentence), center + window_size + 1)]
         return ' '.join(context)
@@ -86,11 +57,11 @@ class ContextBank:
     def _full_sentence_as_context(word: str, sentence: List[str], window_size: int = 5, line: str = ''):
         return line
 
-    # TODO Itt a docstirng hülyeségeket ír!
-    def line_yielder(self, word: str, full_sentence: bool, window_size: int = 5) -> Generator[str, None, None]:
+    def get_examples(self, word: str, full_sentence: bool, window_size: int = 5) -> Generator[str, None, None]:
         """
-        In order to create a not subword-based context, we have to first reconstruct the original sentence,
-         then find the word containing the subword, then rebuild and return the context.
+        Yield an example context from the corpus which contains the selected word
+         (full sentence or window sized context)
+
         :param window_size: Size of the window.
         :param word: word
         :param full_sentence: whether to return full sentence or only a context
@@ -102,7 +73,7 @@ class ContextBank:
             context_creator_fun = self._create_context
 
         with open(self.corp_fn, encoding='UTF-8') as f:
-            for line in f:
+            for line in f:  # TODO the order of contexts is deterministic!
                 line = line.strip()
                 sentence = line.split(' ')
                 # Have at least window_size word context to the left and right as well!
@@ -110,14 +81,12 @@ class ContextBank:
                     context_str = context_creator_fun(word, sentence, window_size, line)
                     yield context_str, self._mask_sentence(context_str, word)
 
-    # TODO Itt a docstirng hülyeségeket ír!
     def select_word(self, number_of_subwords: int) -> Tuple[str, list, int]:
         """
-        Selects a word from the self.counter dictionary.
-        With a word_id, it starts tokenizing the corpora (which is fast, hence not precomputed),
-         and when finds a sentence containing the token.
+        Selects a random word from the self.counter dictionary and check if it matches the required number of subwords
+
         :param number_of_subwords:
-        :return:
+        :return: the selected word, the word_ids and the frequency of the selected word
         """
 
         selected_word, selected_input_ids = '', []
@@ -134,6 +103,7 @@ class ContextBank:
         """
         Masks a sentence in two ways: by replacing the selected word with `MISSING`, which is processed by the guessers
         and by replacing every character in the missing word with a hashmark.
+
         :param original_sentence: The tokenized sentence to mask.
         :param missing_word: The missing word.
         :return: The masked pretty sentence for readability and and a format to be used with a `Guesser`

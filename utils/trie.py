@@ -4,15 +4,16 @@ import pickle
 from typing import List
 
 
+# TODO replace with treelib https://treelib.readthedocs.io/en/latest/ ?
 class TrieNode:
     """A node in the trie structure"""
 
     def __init__(self, word_id):
-        # the character stored in this node
+        # the item stored in this node
         self.word_id = word_id
 
         # whether this can be the end of a word
-        self.is_end = False
+        self.is_end = False   # TODO redundant -> If len(self.children) == 0 <=> self.is_end == True
 
         # a counter indicating how many times a word is inserted
         # (if this node's is_end is True)
@@ -53,14 +54,11 @@ class Trie:
         # Loop through each character in the word
         # Check if there is no child containing the character, create a new child for the current node
         for word_id in word_ids:
-            if word_id in node.children:
-                node = node.children[word_id]
-            else:
-                # If a character is not found,
-                # create a new node in the trie
-                new_node = TrieNode(word_id)
-                node.children[word_id] = new_node
-                node = new_node
+            if word_id not in node.children:
+                # If a character is not found, create a new node in the trie
+                node.children[word_id] = self._trienode_factory(word_id)
+                node.is_end = False
+            node = node.children[word_id]  # Iterate recursively!
 
         # Mark the end of a word
         node.is_end = True
@@ -68,7 +66,7 @@ class Trie:
         # Increment the counter to indicate that we see this word once more
         node.counter += 1
 
-    def dfs(self, node, prefix):
+    def _dfs(self, node, prefix):
         """Depth-first traversal of the trie
 
         Args:
@@ -78,24 +76,22 @@ class Trie:
         """
         if node.is_end:
             self.output.append((prefix + [node.word_id], node.counter))
+        else:
+            for child in node.children.values():
+                self._dfs(child, prefix + [node.word_id])
 
-        for child in node.children.values():
-            self.dfs(child, prefix + [node.word_id])
-
-    def dfs_depth(self, node, prefix, depth: int):
+    def _dfs_depth(self, node, prefix, depth: int):  # TODO mergeelni kellene a két függvényt!
         """Depth-first traversal of the trie
 
         Args:
             - node: the node to start with
-            - prefix: the current prefix, for tracing a
-                word while traversing the trie
+            - prefix: the current prefix, for tracing a word while traversing the trie
         """
-        if len(prefix) == depth-1:
-            if node.is_end:
-                self.output.append((prefix + [node.word_id], node.counter))
-        else:
+        if len(prefix) < depth-1:
             for child in node.children.values():
-                self.dfs_depth(child, prefix + [node.word_id], depth)
+                self._dfs_depth(child, prefix + [node.word_id], depth)
+        elif node.is_end:
+            self.output.append((prefix + [node.word_id], node.counter))
 
     def query_fixed_depth(self, prefix, depth: int):
         """Given an input (a prefix), retrieve all words stored in
@@ -116,11 +112,12 @@ class Trie:
                 return []
 
         # Traverse the trie to get all candidates
-        self.dfs_depth(node, prefix[:-1], depth)
+        self._dfs_depth(node, prefix[:-1], depth)
 
         # Sort the results in reverse order and return
         return self.output
 
+    # TODO merge the above with the below
     def query(self, prefix: List[int]):
         """Given an input (a prefix), retrieve all words stored in
         the trie with that prefix, sort the words by the number of
@@ -132,18 +129,18 @@ class Trie:
         node = self.root
 
         # Check if the prefix is in the trie
-        for char in prefix:
-            if char in node.children:
-                node = node.children[char]
+        for word_id in prefix:
+            if word_id in node.children:
+                node = node.children[word_id]
             else:
                 # cannot found the prefix, return empty list
                 return []
 
         # Traverse the trie to get all candidates
-        self.dfs(node, prefix[:-1])
+        self._dfs(node, prefix[:-1])
 
         # Sort the results in reverse order and return
-        return sorted(self.output, key=lambda x: x[1], reverse=True)
+        return sorted(self.output, key=lambda x: (-x[1], x[0]))
 
 
 def main():
