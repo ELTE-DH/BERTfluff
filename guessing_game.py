@@ -15,16 +15,16 @@ class Game:
         self.similarity_helper = sim_helper
 
     @staticmethod
-    def _print_aligned_sentences(sentences: List[str]):
-        hashmark_positions = [sen.find('#') for sen in sentences]
+    def _print_aligned_sentences(sentences: List[Tuple[str, str, str]]):
+        hashmark_positions = [len(left) + len(word) + 2 for left, word, _ in sentences]
         zero_point = max(hashmark_positions)
-        aligned_stencences = [' ' * (zero_point - position) + sentence
-                              for position, sentence in zip(hashmark_positions, sentences)]
+        aligned_stencences = [f'{" " * (zero_point - position)}{left} {word} {right}'
+                              for position, (left, word, right) in zip(hashmark_positions, sentences)]
         print('\n'.join(aligned_stencences))
         print('-' * 80)
 
-    def _user_experience(self, selected_word: str, sentences: List[str], user_guessed: bool, user_gave_up: bool,
-                         computer_guessed: bool, computer_gave_up: bool, show_model_output: bool,
+    def _user_experience(self, selected_word: str, sentences: List[Tuple[str, str, str]], user_guessed: bool,
+                         user_gave_up: bool, computer_guessed: bool, computer_gave_up: bool, show_model_output: bool,
                          computer_guesses: List[str]) -> Tuple[bool, bool, bool, bool]:
         """
         Provides the user experience.
@@ -80,14 +80,19 @@ class Game:
 
         return user_guessed, user_gave_up, computer_guessed, computer_gave_up
 
-    def guessing_game(self, show_model_output: bool = True, full_sentence: bool = False,
+    def guessing_game(self, show_model_output: bool = True, context_size: int = 5,
                       number_of_subwords: int = 1, debug: bool = False) -> dict:
         """
         Provides the interface for the game.
 
-        :return: a dictionary of length 3, containing the number of guesses of the player, BERT and the word missing
+        :return: a dictionary containing the results
         """
-        selected_word, selected_wordids, selected_word_freq = self.context_bank.select_word(number_of_subwords)
+
+        selected_word, selected_word_freq, selected_wordids = '', 0, []
+        while len(selected_wordids) != number_of_subwords:
+            selected_word, selected_word_freq = self.context_bank.select_word()
+            selected_wordids = self.guesser.split_to_subwords(selected_word)
+
         selected_word_len, selected_wordids_len = len(selected_word), len(selected_wordids)
 
         if debug:
@@ -99,22 +104,19 @@ class Game:
 
         user_guessed, user_gave_up, computer_guessed, computer_gave_up = False, False, False, False
         retval = {'user_attempts': 0, 'computer_attempts': 0, 'missing_word': selected_word}
-        computer_history, human_contexts, computer_contexts = set(), [], []
+        computer_history, contexts, = [], []
 
-        for i, (original_sentence, (hashmarked_sentence, computer_masked_sentence)) \
-                in enumerate(self.context_bank.get_examples(selected_word, full_sentence)):
+        for i, (left, hidden_word, right) in enumerate(self.context_bank.get_examples(selected_word, context_size)):
 
-            human_contexts.append(hashmarked_sentence)
-            computer_contexts.append(computer_masked_sentence)
-            computer_current_guesses = self.guesser.make_guess(computer_contexts, word_length=selected_word_len,
-                                                               previous_guesses=computer_history,
+            contexts.append((left, hidden_word, right))
+            computer_current_guesses = self.guesser.make_guess(contexts, previous_guesses=computer_history,
                                                                retry_wrong=False,
                                                                number_of_subwords=selected_wordids_len)
 
-            computer_history.add(computer_current_guesses[0])
+            computer_history.append(computer_current_guesses[0])
 
             user_guessed, user_gave_up, computer_guessed, computer_gave_up = \
-                self._user_experience(selected_word, human_contexts, user_guessed, user_gave_up, computer_guessed,
+                self._user_experience(selected_word, contexts, user_guessed, user_gave_up, computer_guessed,
                                       computer_gave_up, show_model_output, computer_current_guesses)
 
             # We log how many guesses it took for the players before wining or giving up
@@ -144,7 +146,7 @@ class Game:
 
 
 def main():
-    context_bank = ContextBank('resources/freqs.csv', 'resources/tokenized_100k_corp.spl')
+    context_bank = ContextBank('freqs.csv', 'tokenized_100k_corp.spl')
     print('Context Bank loaded!')
     computer_guesser = BertGuesser()
     print('Guesser loaded!')

@@ -1,18 +1,22 @@
 import pickle
 from collections import defaultdict
 from os import makedirs as os_makedirs
-from typing import List, Iterable, Tuple
+from typing import List, Tuple
 from itertools import islice, chain, repeat
 from os.path import join as os_path_join, isdir as os_path_isdir, isfile as os_path_isfile
 
 import tqdm
 import gensim
 import numpy as np
-import transformers
+from transformers import AutoTokenizer, BertForMaskedLM
 from torch import Tensor, where as torch_where, stack as torch_stack, prod as torch_prod
 from torch.nn.functional import softmax
 
 from utils.trie import Trie
+
+
+# suppress warning, only complain when halting
+# transformers.logging.set_verbosity_error()
 
 
 class BertGuesser:
@@ -34,6 +38,7 @@ class BertGuesser:
         self.model.eval()  # makes output deterministic  # TODO Ezt nem lehetne letárolni?
         self.starting_words = {word_id: word for word, word_id in self.tokenizer.vocab.items() if word.isalpha()}
         self.center_words = {word_id: word for word, word_id in self.tokenizer.vocab.items() if word.startswith('##')}
+        self.tokenizer = AutoTokenizer.from_pretrained(os_path_join(models_dir, 'hubert-base-cc'), lowercase=True)
 
     @staticmethod
     def prepare_resources(trie_fn: str, wordlist_fn: str, resources_dir: str = 'resources',
@@ -48,14 +53,12 @@ class BertGuesser:
         :return: A 3-long tuple containing a tokenizer, model and word trie.
         """
         if os_path_isdir(os_path_join(models_dir, 'hubert-base-cc')):
-            tokenizer = transformers.AutoTokenizer.from_pretrained(os_path_join(models_dir, 'hubert-base-cc'),
-                                                                   lowercase=True)
-            model = transformers.BertForMaskedLM.from_pretrained(os_path_join(models_dir, 'hubert-base-cc'),
-                                                                 return_dict=True)
+            tokenizer = AutoTokenizer.from_pretrained(os_path_join(models_dir, 'hubert-base-cc'), lowercase=True)
+            model = BertForMaskedLM.from_pretrained(os_path_join(models_dir, 'hubert-base-cc'), return_dict=True)
         else:
             # When first downloading the model, we save it, so we don't need internet later
-            tokenizer = transformers.AutoTokenizer.from_pretrained('SZTAKI-HLT/hubert-base-cc', lowercase=True)
-            model = transformers.BertForMaskedLM.from_pretrained('SZTAKI-HLT/hubert-base-cc', return_dict=True)
+            tokenizer = AutoTokenizer.from_pretrained('SZTAKI-HLT/hubert-base-cc', lowercase=True)
+            model = BertForMaskedLM.from_pretrained('SZTAKI-HLT/hubert-base-cc', return_dict=True)
             os_makedirs(models_dir, exist_ok=True)  # Do not fail when models directory exists
             tokenizer.save_pretrained(os_path_join(models_dir, 'hubert-base-cc'))
             model.save_pretrained(os_path_join(models_dir, 'hubert-base-cc'))
@@ -98,23 +101,21 @@ class BertGuesser:
 
         return probability_vector
 
-    def make_guess(self, contexts: List[List[str]], word_length: int, number_of_subwords: int,
-                   previous_guesses: Iterable[str], retry_wrong: bool = False, top_n: int = 10,
-                   missing_token: str = 'MISSING') -> List[str]:
+    def make_guess(self, contexts: List[Tuple[str, str, str]], number_of_subwords: int,
+                   previous_guesses: List[str], retry_wrong: bool = False, top_n: int = 10) -> List[str]:
         """
         Main interface for the game. Processes list of words.
 
         :param contexts: contexts
-        :param word_length: length of the missing word
         :param number_of_subwords: number of subwords to guess
         :param previous_guesses: previous guesses
         :param retry_wrong: whether to retry or discard previous guesses
         :param top_n: number of guesses
-        :param missing_token: String representation of the token marking the place of the guess.
         :return: BERT guesses in a list
         """
 
-        softmax_tensors = self._calculate_softmax_from_context(contexts, number_of_subwords, missing_token)
+        previous_guesses = set(previous_guesses)
+        softmax_tensors = self._calculate_softmax_from_context(contexts, number_of_subwords)
 
         probability_tensor = torch_stack(softmax_tensors, dim=2)
         joint_probabilities = torch_prod(probability_tensor, dim=2)
@@ -122,7 +123,8 @@ class BertGuesser:
         # TODO Ez mi?
         # length_combinations = self.knapsack_length(total_length=word_length, number_of_subwords=number_of_subwords)
 
-        guesses = (guess for guess in self._softmax_iterator(joint_probabilities, target_word_length=word_length)
+        guesses = (guess for guess in self._softmax_iterator(joint_probabilities,
+                                                             target_word_length=len(contexts[0][1]))
                    if retry_wrong or guess not in previous_guesses)
 
         # Pad to top_n if there is < top_n guesses present
@@ -130,22 +132,19 @@ class BertGuesser:
 
         return top_n_guesses
 
-    def _calculate_softmax_from_context(self, contexts: List[List[str]], number_of_subwords: int,
-                                        missing_token: str) -> List[Tensor]:
+    def _calculate_softmax_from_context(self, contexts: List[Tuple[str, str, str]],
+                                        number_of_subwords: int) -> List[Tensor]:
         """
         Calculates the softmax tensors for a given list of contexts.
-        :param missing_token: The name of the missing token.
         :param contexts: Multiple contexts, where one context is a list of strings, with the mask word being MISSING.
         :param number_of_subwords: Number of subwords in the `missing_token` location
         :return: Softmax tensors for each context
         """
 
         softmax_tensors = []
-        for context in contexts:
-            mask_loc = context.index(missing_token)
-            unk_context = list(chain(context[:mask_loc], number_of_subwords * [self.tokenizer.mask_token],
-                                     context[mask_loc + 1:]))
-            bert_context = self.tokenizer(' '.join(unk_context))['input_ids']
+        for left, _, right in contexts:
+            unk_context = f'{left}  {" ".join(number_of_subwords * [self.tokenizer.mask_token])} {right}'
+            bert_context = self.tokenizer(unk_context)['input_ids']
             softmax_tensor = self._get_probabilities(self.tokenizer.decode(bert_context,
                                                                            clean_up_tokenization_spaces=True))
             softmax_tensors.append(softmax_tensor)
@@ -180,14 +179,23 @@ class BertGuesser:
                 # Somehow BERT loves making multi-words with hyphens
                 yield word
 
+    def split_to_subwords(self, selected_word: str) -> List[int]:
+        """
+        Split the word to subwords returning word_ids
+
+        :param selected_word:
+        :return: the selected word, the word_ids and the frequency of the selected word
+        """
+
+        return self.tokenizer(selected_word, add_special_tokens=False)['input_ids']
+
 
 class GensimGuesser:
     def __init__(self, model_fn='hu_wv.gensim', models_dir='models'):
         self.model = gensim.models.Word2Vec.load(os_path_join(models_dir, model_fn))
 
-    def make_guess(self, contexts: List[List[str]], word_length: int, number_of_subwords: int,
-                   previous_guesses: Iterable[str], retry_wrong: bool, top_n: int = 10,
-                   missing_token: str = 'MISSING') -> List[str]:
+    def make_guess(self, contexts: List[Tuple[str, str, str]], number_of_subwords: int,
+                   previous_guesses: List[str], retry_wrong: bool, top_n: int = 10) -> List[str]:
         """
         A gensim-based guesser. Since gensim's API is stable, it can be either FastText, CBOW or skip-gram, as long
         as the model has a `predict_output_word` method.
@@ -195,16 +203,15 @@ class GensimGuesser:
         the word with the highest possibility by taking the product of the possibilities for each context.
 
         :param contexts: contexts
-        :param word_length: length of the missing word
         :param number_of_subwords: number of subwords to guess (not used here)
         :param previous_guesses: previous guesses
         :param retry_wrong: whether to retry or discard previous guesses
         :param top_n: number of guesses
-        :param missing_token: String representation of the token marking the place of the guess.
         :return: cbow guesses in a list
         """
 
-        fixed_contexts = [[word for word in context if word != missing_token] for context in contexts]
+        word_length = len(contexts[0][1])
+        fixed_contexts = [list(chain(left, right)) for left, _, right in contexts]
 
         # We build the initial wordlist from the first guess
         # TODO 1_000_000 volt ígérve! Magyarázat?
