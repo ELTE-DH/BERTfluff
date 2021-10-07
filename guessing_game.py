@@ -106,6 +106,7 @@ class Game:
         retval = {'user_attempts': 0, 'computer_attempts': 0, 'missing_word': selected_word}
         computer_history, contexts, = [], []
 
+        # TODO Itt sent_id, bal, szó (vagy hossz vagy a szó), jobb kontextust ad vissza ebből a régieket és az újatkat
         for i, (left, hidden_word, right) in enumerate(self.context_bank.get_examples(selected_word, context_size)):
 
             contexts.append((left, hidden_word, right))
