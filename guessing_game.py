@@ -6,6 +6,7 @@ from tabulate import tabulate
 from helper import GensimHelper
 from guessers import BertGuesser
 from context_bank import ContextBank
+from context_bank_sql import ContextBank as ContextBankSQL
 
 
 class Game:
@@ -78,6 +79,8 @@ class Game:
             print('Computer gave up.')
             computer_gave_up = True
 
+        print()
+
         return user_guessed, user_gave_up, computer_guessed, computer_gave_up
 
     def guessing_game(self, show_model_output: bool = True, context_size: int = 5,
@@ -90,7 +93,7 @@ class Game:
 
         selected_word, selected_word_freq, selected_wordids = '', 0, []
         while len(selected_wordids) != number_of_subwords:
-            selected_word, selected_word_freq = self.context_bank.select_word()
+            selected_word, selected_word_freq = self.context_bank.select_random_word()
             selected_wordids = self.guesser.split_to_subwords(selected_word)
 
         selected_word_len, selected_wordids_len = len(selected_word), len(selected_wordids)
@@ -106,8 +109,8 @@ class Game:
         retval = {'user_attempts': 0, 'computer_attempts': 0, 'missing_word': selected_word}
         computer_history, contexts, = [], []
 
-        # TODO Itt sent_id, bal, szó (vagy hossz vagy a szó), jobb kontextust ad vissza ebből a régieket és az újatkat
-        for i, (left, hidden_word, right) in enumerate(self.context_bank.get_examples(selected_word, context_size)):
+        _, new_lines = self.context_bank.read_all_lines_for_word(selected_word, [], context_size)
+        for _, left, hidden_word, right in new_lines:
 
             contexts.append((left, hidden_word, right))
             computer_current_guesses = self.guesser.make_guess(contexts, previous_guesses=computer_history,
@@ -148,6 +151,9 @@ class Game:
 
 def main():
     context_bank = ContextBank('freqs.csv', 'tokenized_100k_corp.spl')
+    # db_config = {'database_name': 'webcorpus_conc.db', 'table_name': 'lines', 'id_name': 'id','left_name': 'left',
+    #              'word_name': 'word', 'right_name': 'right', 'freq': 'freq'}
+    # context_bank = ContextBankSQL(db_config)
     print('Context Bank loaded!')
     computer_guesser = BertGuesser()
     print('Guesser loaded!')
