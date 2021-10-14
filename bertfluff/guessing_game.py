@@ -3,10 +3,10 @@ from typing import List, Tuple
 
 from tabulate import tabulate
 
-from helper import GensimHelper
-from guessers import BertGuesser
-from context_bank import ContextBank
-from context_bank_sql import ContextBank as ContextBankSQL
+from bertfluff.helper import GensimHelper
+from bertfluff.guessers.bert_guesser import BertGuesser
+from bertfluff.context_banks.context_bank_file import ContextBank
+from bertfluff.context_banks.context_bank_sql import ContextBank as ContextBankSQL
 
 
 class Game:

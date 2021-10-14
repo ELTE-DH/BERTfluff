@@ -1,10 +1,10 @@
 import unittest
 
-import guessers
+from bertfluff.guessers.bert_guesser import BertGuesser
 
 
 class BertGuesserTests(unittest.TestCase):
-    bert_guesser = guessers.BertGuesser()
+    bert_guesser = BertGuesser()
 
     def test_context_1(self):
         selected_word = 'fordul'

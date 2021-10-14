@@ -25,7 +25,7 @@ venv:
 
 download:
 	@mkdir -pv models
-	@$(VENVPYTHON) guessers.py
+	@$(VENVPYTHON) bertfluff/guessers/bert_guesser.py
 	@wget https://nessie.ilab.sztaki.hu/~levai/hungarian_wv_models/hu_wv.gensim -nc --directory-prefix models
 	@wget https://nessie.ilab.sztaki.hu/~levai/hungarian_wv_models/hu_wv.gensim.syn1neg.npy -nc --directory-prefix models
 	@wget https://nessie.ilab.sztaki.hu/~levai/hungarian_wv_models/hu_wv.gensim.wv.vectors.npy -nc \

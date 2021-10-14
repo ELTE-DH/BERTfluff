@@ -157,7 +157,7 @@ def main():
 
     # output_1 = trie.query([9939])
     # output_2 = trie.query_fixed_depth([9939], 3)
-    with open('../models/trie_words.pickle', 'wb') as outfile:
+    with open('../../models/trie_words.pickle', 'wb') as outfile:
         pickle.dump(trie, outfile)
 
 

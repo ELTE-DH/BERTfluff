@@ -1,6 +1,7 @@
 from flask import Flask, request
 
-from guessers import BertGuesser, GensimGuesser
+from bertfluff.guessers.bert_guesser import BertGuesser
+from bertfluff.guessers.gensim_guesser import GensimGuesser
 
 app = Flask(__name__)
 available_guessers = {'bert': BertGuesser(), 'cbow': GensimGuesser()}
@@ -80,7 +81,7 @@ def parse_params(params):
 
 
 @app.route('/guess', methods=['GET', 'POST'])
-def bert_guess():
+def guess():
     # Accept GET and POST as well
     if request.method == 'POST':
         data = request.json
