@@ -1,8 +1,8 @@
 from random import randrange, shuffle
 
+from sqlalchemy.orm import Session
 from sqlalchemy.orm import declarative_base
 from sqlalchemy import func, Table, create_engine
-from sqlalchemy.orm import Session
 
 
 class ContextBank:

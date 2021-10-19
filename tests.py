@@ -1,6 +1,6 @@
 import unittest
 
-from bertfluff.guessers.bert_guesser import BertGuesser
+from bertfluff.bert_guesser import BertGuesser
 
 
 class BertGuesserTests(unittest.TestCase):

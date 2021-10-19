@@ -1,7 +1,7 @@
 from flask import Flask, request
 
-from bertfluff.guessers.bert_guesser import BertGuesser
-from bertfluff.guessers.gensim_guesser import GensimGuesser
+from bertfluff.bert_guesser import BertGuesser
+from bertfluff.gensim_guesser import GensimGuesser
 
 app = Flask(__name__)
 available_guessers = {'bert': BertGuesser(), 'cbow': GensimGuesser()}

@@ -5,7 +5,6 @@ from os.path import join as os_path_join, expanduser as os_path_expanduser
 
 def create_counters(corp_fp: str, wordlist_fp: str):
     """
-
     Creates helper files based on an spl file.
 
     :param corp_fp: Path to corpus.
@@ -13,13 +12,8 @@ def create_counters(corp_fp: str, wordlist_fp: str):
     :return:
     """
 
-    counter = Counter()
-    with open(os_path_expanduser(corp_fp)) as infile:
-        for line in infile:
-            for word in line.strip().split(' '):
-                counter[word] += 1
-
-    with open(os_path_expanduser(wordlist_fp), 'w') as outfile:
+    with open(os_path_expanduser(corp_fp)) as infile, open(os_path_expanduser(wordlist_fp), 'w') as outfile:
+        counter = Counter(word for line in infile for word in line.strip().split(' '))
         csv_writer = csv.writer(outfile)
         for word_freq_pair in sorted(counter.items(), key=lambda x: (-x[1], x[0])):
             csv_writer.writerow(word_freq_pair)
@@ -35,30 +29,25 @@ def filter_wordlist(in_fp: str, out_fp: str):
     :return: None
     """
 
-    words = set()
-
-    with open(in_fp) as infile:
-        for line in infile:
-            word = line.strip()
-            if word.isalpha() and word.islower():
-                words.add(word)
-
-    with open(out_fp, 'w') as outfile:
+    with open(in_fp, encoding='UTF-8') as infile, open(out_fp, 'w', encoding='UTF-8') as outfile:
+        words = {word for word in map(str.strip, infile) if word.isalpha() and word.islower()}
         for word in sorted(words):
-            outfile.write(f'{word}\n')
+            print(word, file=outfile)
 
 
 def create_corpora(resources_dir: str = 'resources'):
     """
     Used to create frequency. It also deduplicates in a rudimentary manner.
     """
-    c = Counter()
-    sentences = set()
-    dupes = 0
+
     with open(os_path_join(resources_dir, '100k_tok.spl'), encoding='UTF-8') as infile, \
-            open(os_path_join(resources_dir, 'tokenized_100k_corp.spl'), 'w', encoding='UTF-8') as outfile:
+            open(os_path_join(resources_dir, 'tokenized_100k_corp.spl'), 'w', encoding='UTF-8') as sents_outfile, \
+            open(os_path_join(resources_dir, 'freqs.csv'), 'w', encoding='UTF-8') as freqs_outfile:
+        c = Counter()
+        sentences = set()
+        dupes = 0
         for line in infile:
-            if line[0] == '#':
+            if line[0:2] == '# ':
                 continue
             sentence = tuple(line.strip().split(' '))
             if sentence not in sentences:
@@ -69,12 +58,11 @@ def create_corpora(resources_dir: str = 'resources'):
 
             for token in sentence:
                 c[token] += 1
-            print(line, end='', file=outfile)
+            print(line, end='', file=sents_outfile)  # TODO Ez mi? Miért egy sorba írja?
 
-    print(f'There were {dupes} duplicated sentences.')
+        print(f'There were {dupes} duplicated sentences.')
 
-    with open(os_path_join(resources_dir, 'freqs.csv'), 'w', encoding='UTF-8') as outfile:
-        csv_writer = csv.writer(outfile)
+        csv_writer = csv.writer(freqs_outfile)
         for line in sorted(c.items(), key=lambda x: (-x[1], x[0])):
             csv_writer.writerow(line)  # (word, freq)
 

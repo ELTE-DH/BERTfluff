@@ -12,7 +12,7 @@ class GensimGuesser:
         self.model = gensim.models.Word2Vec.load(os_path_join(models_dir, model_fn))
 
     def make_guess(self, contexts: List[Tuple[str, str, str]], number_of_subwords: int,
-                   previous_guesses: List[str], retry_wrong: bool, top_n: int = 10) -> List[str]:
+                   previous_guesses: List[str], retry_wrong: bool = False, top_n: int = 10) -> List[str]:
         """
         A gensim-based guesser. Since gensim's API is stable, it can be either FastText, CBOW or skip-gram, as long
         as the model has a `predict_output_word` method.
@@ -27,6 +27,7 @@ class GensimGuesser:
         :return: cbow guesses in a list
         """
 
+        _ = number_of_subwords
         word_length = len(contexts[0][1])
         fixed_contexts = [list(chain(left, right)) for left, _, right in contexts]
 
@@ -50,17 +51,56 @@ class GensimGuesser:
 
         return words
 
+    @staticmethod
+    def split_to_subwords(selected_word: str) -> List[int]:
+        """
+        Split the word to subwords returning word_ids (dummy function)
 
-def main(input_corpus, resources_dir: str = 'resources', models_dir='models'):
-    logging.basicConfig(filename='gensim.log',
-                        format="%(asctime)s:%(levelname)s:%(message)s",
-                        level=logging.DEBUG)
-    sentences = gensim.models.word2vec.LineSentence(os_path_join(resources_dir, input_corpus))
-    model = gensim.models.Word2Vec(max_vocab_size=1_000_000, workers=8, window=5, vector_size=100, sg=0)
-    model.build_vocab(sentences)
-    model.train(sentences, epochs=1, total_examples=model.corpus_count)
-    model.save(os_path_join(models_dir, 'hu_wv.gensim'))
+        :param selected_word:
+        :return: the selected word, the word_ids and the frequency of the selected word
+        """
+
+        _ = selected_word
+        return [0]
+
+    @staticmethod
+    def prepare_resources(input_corpus: str, resources_dir: str = 'resources', models_dir: str = 'models'):
+        logging.basicConfig(filename='gensim.log',
+                            format="%(asctime)s:%(levelname)s:%(message)s",
+                            level=logging.DEBUG)
+        sentences = gensim.models.word2vec.LineSentence(os_path_join(resources_dir, input_corpus))
+        model = gensim.models.Word2Vec(max_vocab_size=1_000_000, workers=8, window=5, vector_size=100, sg=0)
+        model.build_vocab(sentences)
+        model.train(sentences, epochs=1, total_examples=model.corpus_count)
+        model.save(os_path_join(models_dir, 'hu_wv.gensim'))
+
+        return model
+
+
+class GensimHelper:
+    def __init__(self, model_fn='hu_wv.gensim', models_dir='models'):
+        self.model = gensim.models.Word2Vec.load(os_path_join(models_dir, model_fn))
+
+    def word_similarity(self, word_1: str, word_2: str) -> float:
+        """
+        Calculates similarity by taking the cosine similarity of the vectors of `word_1` and `word_2`.
+        Returns -1 if word is not in the vocabulary.
+
+        :param word_1: One word
+        :param word_2: The other word
+        :return: Similarity of the corresponding word vectors.
+        """
+        for word in (word_1, word_2):
+            if word not in self.model.wv:
+                return -1.0
+
+        return self.model.wv.similarity(word_1, word_2)
+
+
+def download(input_corpus='corp_10M.spl'):  # TODO
+    GensimGuesser.prepare_resources(input_corpus)
 
 
 if __name__ == '__main__':
-    main('corp_10M.spl', '/home/levaid/Downloads/')  # TODO
+    # just download and build everything if the module is not imported
+    download()

@@ -1,7 +1,7 @@
 import csv
 from collections import Counter
-from os.path import join as os_path_join
 from typing import Generator, Tuple
+from os.path import join as os_path_join
 from random import choice as random_choice
 
 
@@ -46,6 +46,7 @@ class ContextBank:
     def read_all_lines_for_word(self, word: str = None, displayed_lines: list = (), hide_word=True):
         """Read all lines for the specific word and separate the ones which were already shown from the new ones"""
 
+        _ = hide_word
         if self._window_size >= 2:
             context_size = (self._window_size - 1) // 2
         else:

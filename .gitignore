@@ -135,7 +135,7 @@ dmypy.json
 .pyre/
 .vscode
 models
-
+resources/webcorpus_conc.db
 
 # Jetbrains IDEs
 .idea/

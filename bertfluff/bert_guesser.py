@@ -1,16 +1,16 @@
 import pickle
-from os import makedirs as os_makedirs
 from typing import List, Tuple
+from os import makedirs as os_makedirs
 from itertools import islice, chain, repeat
 from os.path import join as os_path_join, isdir as os_path_isdir, isfile as os_path_isfile
 
-import tqdm
 import numpy as np
+from tqdm import tqdm
+from torch.nn.functional import softmax
 from transformers import AutoTokenizer, BertForMaskedLM
 from torch import Tensor, where as torch_where, stack as torch_stack, prod as torch_prod
-from torch.nn.functional import softmax
 
-from bertfluff.utils.trie import Trie
+from bertfluff.trie import Trie
 
 
 # suppress warning, only complain when halting
@@ -31,9 +31,9 @@ class BertGuesser:
         :param models_dir: The directory where the models are stored.
         """
 
-        self.tokenizer, self.model, self.word_trie = self.prepare_resources(trie_fn, wordlist_fn, resources_dir,
-                                                                            models_dir)
-        self.model.eval()  # makes output deterministic  # TODO Ezt nem lehetne letárolni?
+        self.tokenizer, self.model, self.word_trie = \
+            self.prepare_resources(trie_fn, wordlist_fn, resources_dir, models_dir)
+        self.model.eval()  # Makes output deterministic
         self.starting_words = {word_id: word for word, word_id in self.tokenizer.vocab.items() if word.isalpha()}
         self.center_words = {word_id: word for word, word_id in self.tokenizer.vocab.items() if word.startswith('##')}
         self.tokenizer = AutoTokenizer.from_pretrained(os_path_join(models_dir, 'hubert-base-cc'), lowercase=True)
@@ -72,7 +72,7 @@ class BertGuesser:
             word_trie = Trie()
             #  wordlist_tokenized always exists  # TODO ez mit jelent?
             with open(wordlist_fn_path) as infile:
-                for line in tqdm.tqdm(infile, desc='Building trie... '):
+                for line in tqdm(infile, desc='Building trie... '):
                     line = line.rstrip()
                     if len(line) > 0:
                         word = tokenizer(line, add_special_tokens=False)['input_ids']
@@ -121,8 +121,8 @@ class BertGuesser:
         # TODO Ez mi?
         # length_combinations = self.knapsack_length(total_length=word_length, number_of_subwords=number_of_subwords)
 
-        guesses = (guess for guess in self._softmax_iterator(joint_probabilities,
-                                                             target_word_length=len(contexts[0][1]))
+        guesses = (guess for guess in
+                   self._softmax_iterator(joint_probabilities, target_word_length=len(contexts[0][1]))
                    if retry_wrong or guess not in previous_guesses)
 
         # Pad to top_n if there is < top_n guesses present
@@ -143,8 +143,8 @@ class BertGuesser:
         for left, _, right in contexts:
             unk_context = f'{left}  {" ".join(number_of_subwords * [self.tokenizer.mask_token])} {right}'
             bert_context = self.tokenizer(unk_context)['input_ids']
-            softmax_tensor = self._get_probabilities(self.tokenizer.decode(bert_context,
-                                                                           clean_up_tokenization_spaces=True))
+            softmax_tensor = \
+                self._get_probabilities(self.tokenizer.decode(bert_context, clean_up_tokenization_spaces=True))
             softmax_tensors.append(softmax_tensor)
 
         return softmax_tensors
@@ -188,8 +188,8 @@ class BertGuesser:
         return self.tokenizer(selected_word, add_special_tokens=False)['input_ids']
 
 
-def download():
-    BertGuesser.prepare_resources('trie_words.pickle', 'resources/wordlist_3M.csv')
+def download(trie_pickle_fn='trie_words.pickle', wordlist_fn='resources/wordlist_3M.csv'):
+    BertGuesser.prepare_resources(trie_pickle_fn, wordlist_fn)
 
 
 if __name__ == '__main__':

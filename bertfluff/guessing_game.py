@@ -3,10 +3,9 @@ from typing import List, Tuple
 
 from tabulate import tabulate
 
-from bertfluff.helper import GensimHelper
-from bertfluff.guessers.bert_guesser import BertGuesser
-from bertfluff.context_banks.context_bank_file import ContextBank
-from bertfluff.context_banks.context_bank_sql import ContextBank as ContextBankSQL
+from bertfluff.gensim_guesser import GensimHelper
+from bertfluff.bert_guesser import BertGuesser
+from bertfluff.context_bank_file import ContextBank
 
 
 class Game:
@@ -91,6 +90,7 @@ class Game:
         :return: a dictionary containing the results
         """
 
+        print(f'Selecting word!')
         selected_word, selected_word_freq, selected_wordids = '', 0, []
         while len(selected_wordids) != number_of_subwords:
             selected_word, selected_word_freq = self.context_bank.select_random_word()
