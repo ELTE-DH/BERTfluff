@@ -76,11 +76,6 @@ class GensimGuesser:
 
         return model
 
-
-class GensimHelper:
-    def __init__(self, model_fn='hu_wv.gensim', models_dir='models'):
-        self.model = gensim.models.Word2Vec.load(os_path_join(models_dir, model_fn))
-
     def word_similarity(self, word_1: str, word_2: str) -> float:
         """
         Calculates similarity by taking the cosine similarity of the vectors of `word_1` and `word_2`.

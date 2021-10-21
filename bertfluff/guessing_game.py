@@ -3,13 +3,13 @@ from typing import List, Tuple
 
 from tabulate import tabulate
 
-from bertfluff.gensim_guesser import GensimHelper
+from bertfluff.gensim_guesser import GensimGuesser
 from bertfluff.bert_guesser import BertGuesser
 from bertfluff.context_bank_file import ContextBank
 
 
 class Game:
-    def __init__(self, context_bank: ContextBank, guesser, sim_helper: GensimHelper = None):
+    def __init__(self, context_bank: ContextBank, guesser, sim_helper: GensimGuesser = None):
         self.context_bank = context_bank
         self.guesser = guesser
         self.similarity_helper = sim_helper
@@ -157,7 +157,7 @@ def main():
     print('Context Bank loaded!')
     computer_guesser = BertGuesser()
     print('Guesser loaded!')
-    guess_helper = GensimHelper()
+    guess_helper = GensimGuesser()
     print('Helper loaded!')
     game = Game(context_bank, computer_guesser, sim_helper=guess_helper)
     print('Game handler loaded!')
