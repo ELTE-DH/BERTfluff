@@ -1,10 +1,10 @@
-from flask import Flask, request
+from flask import Flask, request, current_app
 
 from bertfluff.bert_guesser import BertGuesser
 from bertfluff.gensim_guesser import GensimGuesser
 
-app = Flask(__name__)
-available_guessers = {'bert': BertGuesser(), 'cbow': GensimGuesser()}
+
+AVAILABLE_GUESSERS = {'bert': BertGuesser, 'cbow': GensimGuesser}
 
 
 def parse_positive_ints(params, expected_params):
@@ -38,7 +38,6 @@ def parse_params(params):
     Parse the parameters for the API. Will throw ValueError if data format is incorrect.
     The parameters are the following:
         - contexts: list of lists, where a context's words are separated by spaces, and contexts representad as list.
-        - word_length: Number of characters of the missing word.
         - n_subwords: Number of subwords for the missing word.
         - prev_guesses: Previous guesses, represented as list.
         - retry_wrong: Bool. Possible values: y or n, true, false, yes, no, 1, 0
@@ -48,14 +47,13 @@ def parse_params(params):
 
     # Choose
     guesser_name = params.get('guesser', '').lower()
-    if guesser_name not in available_guessers.keys():
-        raise ValueError(f'guesser param must be one of {set(available_guessers.keys())} !')
+    if guesser_name not in AVAILABLE_GUESSERS.keys():
+        raise ValueError(f'guesser param must be one of {set(AVAILABLE_GUESSERS.keys())} !')
 
     # Positive ints
     try:
-        word_length, number_of_subwords, top_n = \
-            parse_positive_ints(params, (('word_len', None, 'word_len must be positive int!'),
-                                         ('no_of_subwords', None, 'no_of_subwords must be positive int!'),
+        number_of_subwords, top_n = \
+            parse_positive_ints(params, (('no_of_subwords', None, 'no_of_subwords must be positive int!'),
                                          ('top_n', 10, 'top_n must be positive int or must be omitted (default: 10)!')))
     except ValueError as e:
         raise e
@@ -66,48 +64,66 @@ def parse_params(params):
         raise ValueError('retry_wrong must be a bool represented'
                          ' one of the following values: y or n, true, false, yes, no, 1, 0 !')
 
-    # List of strings can not be empty4
-    contexts = [context.split() for context in params.get('contexts[]', [])]
-    if len(contexts) == 0:
-        raise ValueError('contexts must be list of context words !')
-
     # Default: MISSING
-    missing_token = params.get('missing_token', 'MISSING')
+    missing_token = params.get('missing_token')
+    if missing_token is None:
+        raise ValueError('missing_token must be a string which is an unique word in all contexts!')
+
+    # List of strings can not be empty!
+    raw_contexts = params.get('contexts[]')
+    if len(raw_contexts) == 0:
+        raise ValueError('contexts must be non-empty list of context strings!')
+
+    # List of contexts must be splitted into (left, missing_word, right) triplets
+    contexts = []   # List[Tuple[str, str, str]]
+    for context in raw_contexts:
+        context_words = context.split()
+        ind = next((i for i, context_word in enumerate(context_words) if missing_token == context_word), None)
+        if ind is None:
+            raise ValueError('One elem of contexts does not contain missing_token!')
+        contexts.append((' '.join(context_words[:ind]), context_words[ind], ' '.join(context_words[ind+1:])))
 
     # Default: empty list
     previous_guesses = params.get('prev_guesses[]', [])
 
-    return guesser_name, contexts, word_length, number_of_subwords, previous_guesses, retry_wrong, top_n, missing_token
+    return guesser_name, contexts, number_of_subwords, previous_guesses, retry_wrong, top_n
 
 
-@app.route('/guess', methods=['GET', 'POST'])
-def guess():
-    # Accept GET and POST as well
-    if request.method == 'POST':
-        data = request.json
-    else:  # GET
-        # Fix Werkzeug behaviour:
-        # https://werkzeug.palletsprojects.com/en/2.0.x/datastructures/#werkzeug.datastructures.MultiDict.to_dict
-        data = {}
-        for k, v in request.args.to_dict(flat=False).items():
-            if k.endswith('[]'):
-                data[k] = v
-            else:
-                data[k] = v[0]
+def create_app():
+    flask_app = Flask(__name__)
+    flask_app.config['APP_SETTINGS'] = {'initialised_guessers': {k: v() for k, v in AVAILABLE_GUESSERS.items()}}
 
-    try:
-        guesser_name, contexts, word_length, number_of_subwords, previous_guesses, retry_wrong, top_n, missing_token = \
-            parse_params(data)
-    except ValueError as e:
-        result = app.response_class(response=str(e), status=400, mimetype='application/json')
-        return result
+    @flask_app.route('/guess', methods=['GET', 'POST'])
+    def guess():
+        # Accept GET and POST as well
+        if request.method == 'POST':
+            data = request.json
+        else:  # GET
+            # Fix Werkzeug behaviour:
+            # https://werkzeug.palletsprojects.com/en/2.0.x/datastructures/#werkzeug.datastructures.MultiDict.to_dict
+            data = {}
+            for k, v in request.args.to_dict(flat=False).items():
+                if k.endswith('[]'):
+                    data[k] = v
+                else:
+                    data[k] = v[0]
 
-    selected_guesser = available_guessers[guesser_name]
-    output = selected_guesser.make_guess(contexts, word_length, number_of_subwords, previous_guesses, retry_wrong,
-                                         top_n, missing_token)
+        try:
+            guesser_name, contexts, number_of_subwords, previous_guesses, retry_wrong,\
+                top_n = parse_params(data)
+        except ValueError as e:
+            result = app.response_class(response=str(e), status=400, mimetype='application/json')
+            return result
 
-    return {'guesses': output}
+        selected_guesser = current_app.config['APP_SETTINGS']['initialised_guessers'][guesser_name]
+        output = selected_guesser.make_guess(contexts, number_of_subwords, previous_guesses, retry_wrong,
+                                             top_n)
+
+        return {'guesses': output}
+
+    return flask_app
 
 
 if __name__ == '__main__':
+    app = create_app()
     app.run()  # run our Flask app
