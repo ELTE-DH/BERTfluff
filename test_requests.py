@@ -70,6 +70,24 @@ def main():
         print('GET', guesser_type, output_4)
         print(output_4.json())
 
+    ####################################################################################################################
+
+    params_3 = {'word': 'Kormányok'}
+
+    for guesser_type in ('bert', 'cbow'):
+        params_3['guesser'] = guesser_type
+        output_5 = requests.post(f'{SERVER}/no_of_subwords', json=params_3)
+
+        print('POST', guesser_type, output_5)
+        print(output_5.json())
+
+    for guesser_type in ('bert', 'cbow'):
+        params_3['guesser'] = guesser_type
+        output_6 = requests.get(f'{SERVER}/no_of_subwords?{urlencode(params_3, doseq=True)}')
+
+        print('GET', guesser_type, output_6)
+        print(output_6.json())
+
 
 if __name__ == '__main__':
     main()

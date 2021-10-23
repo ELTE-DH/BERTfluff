@@ -121,6 +121,27 @@ def create_app():
 
         return {'guesses': output}
 
+    @flask_app.route('/no_of_subwords', methods=['GET', 'POST'])
+    def no_of_subwords():
+        # Accept GET and POST as well
+        if request.method == 'POST':
+            data = request.json
+        else:  # GET
+            data = request.args
+
+        if 'word' not in data:
+            return app.response_class(response='word must be specified!', status=400, mimetype='application/json')
+
+        guesser_name = data.get('guesser', '').lower()
+        if guesser_name not in AVAILABLE_GUESSERS.keys():
+            return app.response_class(response='guesser param must be one of {set(AVAILABLE_GUESSERS.keys())} !',
+                                      status=400, mimetype='application/json')
+
+        selected_guesser = current_app.config['APP_SETTINGS']['initialised_guessers'][guesser_name]
+        output = len(selected_guesser.split_to_subwords(data['word']))
+
+        return {'no_of_subwords': output}
+
     return flask_app
 
 
