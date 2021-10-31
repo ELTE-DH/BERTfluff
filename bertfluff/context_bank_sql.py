@@ -6,14 +6,15 @@ from sqlalchemy import func, Table, create_engine
 
 
 class ContextBank:
-    def __init__(self, db_config: dict, db=None, window_size: int = 11, hide_char: str = '#'):
+    def __init__(self, db_config: dict, db=None, left_size: int = 5, right_size: int = 5, hide_char: str = '#'):
         """
         Interface for selecting words and appropriate contexts for them
 
         :param db_config: A dictionary containing the database configuration. Mandatory keys:  database_name,
             table_name, id_name, left_name, word_name, right_name, freq_name
         :param db: An initialized flask_sqlalchemy.SQLAlchemy object
-        :param window_size: the window's size left context + word + right context
+        :param left_size: the size of left context
+        :param left_size: the size of right context
         :param hide_char: Character to use when hiding word
         """
 
@@ -34,16 +35,18 @@ class ContextBank:
         self._right_obj = col_objs[db_config['right_name']]
         self._freq = col_objs[db_config['freq_name']]
 
-        self._window_size = window_size
+        if left_size < 0:
+            left_size = 1_000_000  # Extremely big to include full sentence
+        if right_size < 0:
+            right_size = 1_000_000  # Extremely big to include full sentence
+
+        self._left_size = left_size
+        self._right_size = right_size
+
         self._hide_char = hide_char
 
     def read_all_lines_for_word(self, word: str = None, displayed_lines: list = (), hide_word=True):
         """Read all lines for the specific word and separate the ones which were already shown from the new ones"""
-
-        if self._window_size > 2:
-            context_size = (self._window_size - 1) // 2
-        else:
-            context_size = 1_000_000  # Extremely big to include full sentence
 
         if hide_word:
             hide_fun = self._hide_word
@@ -64,9 +67,7 @@ class ContextBank:
             filter(self._word_obj == word)
         for line_id, left, word, right in all_lines_for_word_query.all():
             word = hide_fun(word)
-            # Truncate contexts if needed
-            left_truncated = ' '.join(left.split(' ')[-min(context_size, len(left)):])
-            right_truncated = ' '.join(right.split(' ')[:min(context_size, len(right))])
+            left_truncated, right_truncated = self._truncate_context(left, right)
 
             if line_id in displayed_lines_set:
                 lines_to_display[line_id] = [line_id, left_truncated, word, right_truncated]
@@ -77,6 +78,14 @@ class ContextBank:
         shuffle(new_lines)
 
         return lines_to_display, new_lines
+
+    def _truncate_context(self, left, right):
+        """Truncate contexts if needed"""
+        left_split = left.split(' ')
+        right_split = right.split(' ')
+        left_truncated = ' '.join(left_split[max(len(left_split)-self._left_size, 0):])
+        right_truncated = ' '.join(right_split[:min(self._right_size, len(right_split))])
+        return left_truncated, right_truncated
 
     def select_one_random_line(self):
         """Select one random line from all available lines
@@ -91,8 +100,9 @@ class ContextBank:
             with_entities(self._id_obj, self._left_obj, self._word_obj, self._right_obj). \
             filter(self._id_obj == random_line_id)
         line_id, left, word, right = entry_query.one()
+        left_truncated, right_truncated = self._truncate_context(left, right)
 
-        return [[line_id, left, self._hide_word(word), right]]
+        return [[line_id, left_truncated, self._hide_word(word), right_truncated]]
 
     def _get_random_line_id(self):
         """Select a random id (line_id) from the table"""
