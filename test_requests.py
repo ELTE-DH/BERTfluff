@@ -88,6 +88,24 @@ def main():
         print('GET', guesser_type, output_6)
         print(output_6.json())
 
+    ####################################################################################################################
+
+    params_4 = {'word1': 'alma', 'word2': 'körte'}
+
+    for guesser_type in ('bert', 'cbow'):
+        params_4['guesser'] = guesser_type
+        output_7 = requests.post(f'{SERVER}/word_similarity', json=params_4)
+
+        print('POST', guesser_type, output_7)
+        print(output_7.json())
+
+    for guesser_type in ('bert', 'cbow'):
+        params_4['guesser'] = guesser_type
+        output_8 = requests.get(f'{SERVER}/word_similarity?{urlencode(params_4, doseq=True)}')
+
+        print('GET', guesser_type, output_8)
+        print(output_8.json())
+
 
 if __name__ == '__main__':
     main()

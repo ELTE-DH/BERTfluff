@@ -187,6 +187,11 @@ class BertGuesser:
 
         return self.tokenizer(selected_word, add_special_tokens=False)['input_ids']
 
+    @staticmethod
+    def word_similarity(word_1: str, word_2: str) -> float:
+        _ = (word_1, word_2)
+        return -1.0  # Dummy function. BERT is not able to return wordsimilarity without context
+
 
 def download(trie_pickle_fn='trie_words.pickle', wordlist_fn='resources/wordlist_3M.csv'):
     BertGuesser.prepare_resources(trie_pickle_fn, wordlist_fn)

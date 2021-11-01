@@ -134,13 +134,35 @@ def create_app():
 
         guesser_name = data.get('guesser', '').lower()
         if guesser_name not in AVAILABLE_GUESSERS.keys():
-            return app.response_class(response='guesser param must be one of {set(AVAILABLE_GUESSERS.keys())} !',
+            return app.response_class(response=f'guesser param must be one of {set(AVAILABLE_GUESSERS.keys())} !',
                                       status=400, mimetype='application/json')
 
         selected_guesser = current_app.config['APP_SETTINGS']['initialised_guessers'][guesser_name]
         output = len(selected_guesser.split_to_subwords(data['word']))
 
         return {'no_of_subwords': output}
+
+    @flask_app.route('/word_similarity', methods=['GET', 'POST'])
+    def word_similarity():
+        # Accept GET and POST as well
+        if request.method == 'POST':
+            data = request.json
+        else:  # GET
+            data = request.args
+
+        if 'word1' not in data or 'word2' not in data:
+            return app.response_class(response='word1 and word2 must be specified!', status=400,
+                                      mimetype='application/json')
+
+        guesser_name = data.get('guesser', '').lower()
+        if guesser_name not in AVAILABLE_GUESSERS.keys():  # TODO HACK for simplicity
+            return app.response_class(response=f'guesser param must be one of {set(AVAILABLE_GUESSERS.keys())} !',
+                                      status=400, mimetype='application/json')
+
+        selected_guesser = current_app.config['APP_SETTINGS']['initialised_guessers'][guesser_name]
+        output = selected_guesser.word_similarity(data['word1'], data['word2'])
+
+        return {'word_similarity': str(output)}
 
     return flask_app
 
