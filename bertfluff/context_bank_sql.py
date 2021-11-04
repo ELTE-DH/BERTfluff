@@ -1,8 +1,7 @@
 from random import randrange, shuffle
 
 from sqlalchemy.orm import Session
-from sqlalchemy.orm import declarative_base
-from sqlalchemy import func, Table, create_engine
+from sqlalchemy import func, Table, create_engine, MetaData
 
 
 class ContextBank:
@@ -19,15 +18,14 @@ class ContextBank:
         """
 
         if db is None and 'database_name' in db_config:
-            self._db = create_engine(f'sqlite:///{db_config["database_name"]}')
-            self._session = Session(self._db)
+            db = create_engine(f'sqlite:///{db_config["database_name"]}')
+            self._session = Session(db)
         elif db is not None and hasattr(db, 'session'):
-            self._db = db
             self._session = db.session
         else:
             raise ValueError('db_config[\'database_name\'] or db from flask_sqlalchemy.SQLAlchemy must be set!')
 
-        self._table_obj = Table(db_config['table_name'], declarative_base().metadata, autoload_with=self._db.engine)
+        self._table_obj = Table(db_config['table_name'], MetaData(), autoload_with=db.engine)
         col_objs = {col_obj.key: col_obj for col_obj in self._table_obj.c}
         self._id_obj = col_objs[db_config['id_name']]
         self._left_obj = col_objs[db_config['left_name']]

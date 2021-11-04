@@ -6,6 +6,7 @@ from tabulate import tabulate
 from bertfluff.gensim_guesser import GensimGuesser
 from bertfluff.bert_guesser import BertGuesser
 from bertfluff.context_bank_file import ContextBank
+# from bertfluff.context_bank_sql import ContextBank as ContextBankSQL
 
 
 class Game:
@@ -151,9 +152,9 @@ class Game:
 
 def main():
     context_bank = ContextBank('freqs.csv', 'tokenized_100k_corp.spl')
-    # db_config = {'database_name': 'webcorpus_conts.db', 'table_name': 'lines', 'id_name': 'id','left_name': 'left',
-    #              'word_name': 'word', 'right_name': 'right', 'freq': 'freq'}
-    # context_bank = ContextBankSQL(db_config, left_size=5, right_size=3, hide_char='#')
+    # db_config = {'database_name': 'webcorpus1_conts.db', 'table_name': 'lines', 'id_name': 'id', 'left_name': 'left',
+    #              'word_name': 'word', 'right_name': 'right', 'freq_name': 'freq'}
+    # context_bank = ContextBankSQL(db_config, left_size=5, right_size=3)
     print('Context Bank loaded!')
     computer_guesser = BertGuesser()
     print('Guesser loaded!')
