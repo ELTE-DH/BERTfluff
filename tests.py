@@ -8,7 +8,7 @@ class BertGuesserTests(unittest.TestCase):
 
     def test_context_1(self):
         selected_word = 'fordul'
-        contexts = [('Nyugalmuk sokszor békés alvásba',  '#' * len(selected_word), ', rengeteget pihennek , komótos')]
+        contexts = [('Nyugalmuk sokszor békés alvásba', '#' * len(selected_word), ', rengeteget pihennek , komótos')]
         number_of_subwords = 1
         expected_output = ['fordul', 'folyik', 'nyúlik', 'szakad', 'torkol', 'alakul', 'alszik', 'merült', 'átvált',
                            'szorul']
@@ -31,28 +31,23 @@ class BertGuesserTests(unittest.TestCase):
         self.assertEqual(model_output, expected_output)
 
     def test_context_3(self):
-        selected_word = 'Telefonos'
-        contexts = [('Országos', '#' * len(selected_word),
-                     'Ügyfélszolgálatunk Kormányzati Ügyfélvonallal rendelkezik és')]
+        contexts = [('kulccsal " legördülő menüben a', '###########', 'alapjául szolgáló zárbetétet a kívánt')]
 
         number_of_subwords = 2
-        expected_output = ['Kormányon', 'Kormányos', 'Kormányok', 'Telefonon', 'Kormányát', 'Telefonos', 'Kormányra',
-                           'Lakossági', 'Kormánymű', 'Telefonok']
+        expected_output = ['zárszerelés', 'zárrendszer', 'zársebesség', 'zárhatatlan', 'visszaállás', 'termékkulcs',
+                           'számlabetét', 'működtetnek', 'forgalmazás', 'kulcskártya']
         previous_guesses = []
         model_output = self.bert_guesser.make_guess(contexts, number_of_subwords, previous_guesses=previous_guesses,
                                                     retry_wrong=False)
         self.assertEqual(model_output, expected_output)
 
     def test_context_4(self):
-        selected_word = 'Telefonos'
-        contexts = [('Országos', '#' * len(selected_word),
-                     'Ügyfélszolgálatunk Kormányzati Ügyfélvonallal rendelkezik és'),
-                    ('regisztrációtól a nyomtatványok kitöltéséig ;', '#' * len(selected_word),
-                     'ügyintézés : folyamatos fejlesztéseink eredményeképpen')]
+        contexts = [('kulccsal " legördülő menüben a', '###########', 'alapjául szolgáló zárbetétet a kívánt'),
+                    (', a kulcsregisztráció , a', '###########', 'készítés egyaránt elérhető szolgáltatásunk .')]
 
         number_of_subwords = 2
-        expected_output = ['Kormányok', 'Kormányon', 'Kormányos', 'hibaablak', 'Kormánymű', 'Telefonok', 'Telefonon',
-                           'Ügyfélkör', 'Telefonos', 'Internetr']
+        expected_output = ['biztonságit', 'kulcsprofil', 'biztonságis', 'kulcskártya', 'zárrendszer', 'programjegy',
+                           'rendszerunk', 'termékkulcs', 'bankkártyás', 'tartalomtár']
         previous_guesses = []
         model_output = self.bert_guesser.make_guess(contexts, number_of_subwords, previous_guesses=previous_guesses,
                                                     retry_wrong=False)

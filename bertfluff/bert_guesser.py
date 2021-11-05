@@ -67,10 +67,10 @@ class BertGuesser:
             with open(trie_fn_path, 'rb') as infile:
                 word_trie: Trie = pickle.load(infile)
         else:
+            # wordlist_fn should always exist
             wordlist_fn_path = os_path_join(resources_dir, wordlist_fn)
             print(f'Trie model file not found at {trie_fn_path} location, creating one from {wordlist_fn_path}.')
             word_trie = Trie()
-            #  wordlist_tokenized always exists  # TODO ez mit jelent?
             with open(wordlist_fn_path) as infile:
                 for line in tqdm(infile, desc='Building trie... '):
                     line = line.rstrip()
@@ -117,9 +117,6 @@ class BertGuesser:
 
         probability_tensor = torch_stack(softmax_tensors, dim=2)
         joint_probabilities = torch_prod(probability_tensor, dim=2)
-
-        # TODO Ez mi?
-        # length_combinations = self.knapsack_length(total_length=word_length, number_of_subwords=number_of_subwords)
 
         guesses = (guess for guess in
                    self._softmax_iterator(joint_probabilities, target_word_length=len(contexts[0][1]))
@@ -172,7 +169,7 @@ class BertGuesser:
         for idx in argsorted_probabilities:
             candidate = candidates[idx]
             word = self.tokenizer.decode(candidate, clean_up_tokenization_spaces=True)
-            # TODO miért kell ellenőrizni a hosszt, ha a candidate már fix hosszú?
+            # Length needs to be examined in case Transformers decode does stupid things (e.g. adding whitespaces)
             if len(word) == target_word_length and word.isalpha():
                 # Somehow BERT loves making multi-words with hyphens
                 yield word

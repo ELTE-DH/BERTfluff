@@ -93,7 +93,7 @@ class Game:
 
         print(f'Selecting word!')
         selected_word, selected_word_freq, selected_wordids = '', 0, []
-        while len(selected_wordids) != number_of_subwords:
+        while len(selected_wordids) != number_of_subwords or not selected_word.islower():
             selected_word, selected_word_freq = self.context_bank.select_random_word()
             selected_wordids = self.guesser.split_to_subwords(selected_word)
 
@@ -165,7 +165,7 @@ def main():
 
     table = []
     headers = ['missing_word', 'user_won', 'computer_won', 'tie', 'user_attempts', 'computer_attempts']
-    for i in (1, 1, 2):
+    for i in (2, 2, 2):
         result = game.guessing_game(number_of_subwords=i)  # show_model_output=True, full_sentence=False
         table.append([result[key] for key in headers])
 
