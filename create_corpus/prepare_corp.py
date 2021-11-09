@@ -52,13 +52,11 @@ def create_corpora(resources_dir: str = 'resources'):
             sentence = tuple(line.strip().split(' '))
             if sentence not in sentences:
                 sentences.add(sentence)
+                for token in sentence:
+                    c[token] += 1
+                print(line, end='', file=sents_outfile)  # line is not stripped, hence we print it as-is
             else:
                 dupes += 1
-                continue
-
-            for token in sentence:
-                c[token] += 1
-            print(line, end='', file=sents_outfile)  # TODO Ez mi? Miért egy sorba írja?
 
         print(f'There were {dupes} duplicated sentences.')
 

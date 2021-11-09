@@ -1,11 +1,12 @@
-
 from typing import List, Tuple
 
 from tabulate import tabulate
 
-from bertfluff.gensim_guesser import GensimGuesser
-from bertfluff.bert_guesser import BertGuesser
+import kenlm_guesser
 from bertfluff.context_bank_file import ContextBank
+from bertfluff.gensim_guesser import GensimGuesser
+
+
 # from bertfluff.context_bank_sql import ContextBank as ContextBankSQL
 
 
@@ -138,12 +139,13 @@ class Game:
                 # Compute winner
                 # User guessed the right word before the computer or the computer gave up when the user guesser right
                 retval['user_won'] = user_guessed and \
-                    (retval['user_attempts'] < retval['computer_attempts'] or computer_gave_up)
+                                     (retval['user_attempts'] < retval['computer_attempts'] or computer_gave_up)
                 # The computer guessed the right word before the user (fewer attempts or the user gave up)
                 retval['computer_won'] = computer_guessed and not user_guessed
                 # Both guessed in the same round or both gave up
                 retval['tie'] = (user_gave_up and computer_gave_up) or \
-                    (user_guessed and computer_guessed and retval['user_attempts'] == retval['computer_attempts'])
+                                (user_guessed and computer_guessed and retval['user_attempts'] == retval[
+                                    'computer_attempts'])
 
                 break  # End game
 
@@ -156,7 +158,7 @@ def main():
     #              'word_name': 'word', 'right_name': 'right', 'freq_name': 'freq'}
     # context_bank = ContextBankSQL(db_config, left_size=5, right_size=3)
     print('Context Bank loaded!')
-    computer_guesser = BertGuesser()
+    computer_guesser = kenlm_guesser.KenLMGuesser()
     print('Guesser loaded!')
     guess_helper = GensimGuesser()
     print('Helper loaded!')
@@ -165,7 +167,7 @@ def main():
 
     table = []
     headers = ['missing_word', 'user_won', 'computer_won', 'tie', 'user_attempts', 'computer_attempts']
-    for i in (2, 2, 2):
+    for i in (1, 1, 1):
         result = game.guessing_game(number_of_subwords=i)  # show_model_output=True, full_sentence=False
         table.append([result[key] for key in headers])
 

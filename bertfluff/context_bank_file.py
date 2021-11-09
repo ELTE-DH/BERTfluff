@@ -66,7 +66,7 @@ class ContextBank:
         """
 
         with open(self.corp_fn, encoding='UTF-8') as f:
-            for n, line in enumerate(f):  # TODO the order of contexts is deterministic!
+            for n, line in enumerate(f):  # the order of contexts is deterministic
                 sentence = line.strip().split(' ')
                 # Find word in sentence...
                 word_index = next((i for i, x in enumerate(sentence) if x == word), -1)

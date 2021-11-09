@@ -8,8 +8,9 @@ import gensim
 
 
 class GensimGuesser:
-    def __init__(self, model_fn='hu_wv.gensim', models_dir='models'):
-        self.model = gensim.models.Word2Vec.load(os_path_join(models_dir, model_fn))
+    def __init__(self, model_fn='hu_fasttext_100.gensim', models_dir='models'):
+        # self.model = gensim.models.Word2Vec.load(os_path_join(models_dir, model_fn))
+        self.model = gensim.models.Word2Vec.load(os_path_join(models_dir, model_fn), mmap='r')
 
     def make_guess(self, contexts: List[Tuple[str, str, str]], number_of_subwords: int,
                    previous_guesses: List[str], retry_wrong: bool = False, top_n: int = 10) -> List[str]:
@@ -79,15 +80,12 @@ class GensimGuesser:
     def word_similarity(self, word_1: str, word_2: str) -> float:
         """
         Calculates similarity by taking the cosine similarity of the vectors of `word_1` and `word_2`.
-        Returns -1 if word is not in the vocabulary.
+        Due to the use of FastText, every word has a vector representation.
 
         :param word_1: One word
         :param word_2: The other word
         :return: Similarity of the corresponding word vectors.
         """
-        for word in (word_1, word_2):
-            if word not in self.model.wv:
-                return -1.0
 
         return self.model.wv.similarity(word_1, word_2)
 

@@ -2,9 +2,10 @@ from flask import Flask, request, current_app
 
 from bertfluff.bert_guesser import BertGuesser
 from bertfluff.gensim_guesser import GensimGuesser
+from bertfluff.kenlm_guesser import KenLMGuesser
 
 
-AVAILABLE_GUESSERS = {'bert': BertGuesser, 'cbow': GensimGuesser}
+AVAILABLE_GUESSERS = {'bert': BertGuesser, 'cbow': GensimGuesser, 'kenlm': KenLMGuesser}
 
 
 def parse_positive_ints(params, expected_params):
