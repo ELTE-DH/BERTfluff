@@ -190,7 +190,7 @@ class BertGuesser:
         return -1.0  # Dummy function. BERT is not able to return wordsimilarity without context
 
 
-def download(trie_pickle_fn='trie_words.pickle', wordlist_fn='resources/wordlist_3M.csv'):
+def download(trie_pickle_fn='trie_words.pickle', wordlist_fn='wordlist_3M.csv'):
     BertGuesser.prepare_resources(trie_pickle_fn, wordlist_fn)
 
 

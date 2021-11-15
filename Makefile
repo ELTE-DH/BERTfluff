@@ -26,14 +26,14 @@ venv:
 corp:
 	@echo "Preparing contextbank."
 	@wget https://nessie.ilab.sztaki.hu/~levai/bert_guessinggame_resources/webcorp_2_freqs.tsv -nc --directory-prefix resources
-	@cut -f1 resources/webcorp_2_freqs.tsv | head -n 3000000 > wordlist_3M_unfiltered.csv
+	@head -n 3000000 <(cut -f1 resources/webcorp_2_freqs.tsv) >resources/wordlist_3M_unfiltered.csv
 	@$(VENVPYTHON) create_corpus/prepare_corp.py
 	@echo "Contextbank is successfully created!"
 .PHONY: corp
 
 download:
 	@mkdir -pv models
-	@$(VENVPYTHON) bertfluff/guessers/bert_guesser.py
+	@$(VENVPYTHON) bertfluff/bert_guesser.py
 	@wget https://nessie.ilab.sztaki.hu/~levai/bert_guessinggame_resources/10M_pruned.bin -nc --directory-prefix models
 	@wget https://nessie.ilab.sztaki.hu/~levai/bert_guessinggame_resources/hu_fasttext_100.gensim -nc --directory-prefix models
 	@wget https://nessie.ilab.sztaki.hu/~levai/bert_guessinggame_resources/hu_fasttext_100.gensim.wv.vectors_ngrams.npy -nc --directory-prefix models
@@ -50,7 +50,9 @@ kenlm:
 	@cd build
 	@cmake ..
 	@make -j 4
-	@bin/lmplz -o 5 --prune 0 4 9 16 25 <../10M.spl >10M_pruned.arpa
+	@wget https://nessie.ilab.sztaki.hu/~levai/bert_guessinggame_resources/corp.spl.gz -nc
+	@head -n 10000000 <(zcat whole_corp.spl.gz) >10M.spl
+	@bin/lmplz -o 5 --prune 0 4 9 16 25 <10M.spl >10M_pruned.arpa
 	@bin/build_binary 10M_pruned.arpa 10M_pruned.bin
 	@mv 10M_pruned.bin ../../models/
 .PHONY: kenlm

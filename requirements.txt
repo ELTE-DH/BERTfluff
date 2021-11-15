@@ -1,4 +1,5 @@
 torch
+kenlm @ https://github.com/kpu/kenlm/archive/master.zip
 transformers
 flask
 numpy
