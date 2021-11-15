@@ -26,13 +26,26 @@ venv:
 download:
 	@mkdir -pv models
 	@$(VENVPYTHON) bertfluff/guessers/bert_guesser.py
-	@wget https://nessie.ilab.sztaki.hu/~levai/hungarian_wv_models/hu_wv.gensim -nc --directory-prefix models
-	@wget https://nessie.ilab.sztaki.hu/~levai/hungarian_wv_models/hu_wv.gensim.syn1neg.npy -nc --directory-prefix models
-	@wget https://nessie.ilab.sztaki.hu/~levai/hungarian_wv_models/hu_wv.gensim.wv.vectors.npy -nc \
-           --directory-prefix models
-	@echo "$(GREEN)Models are successfully downloaded and trie successfully build!$(NOCOLOR)"
+	@wget https://nessie.ilab.sztaki.hu/~levai/bert_guessinggame_resources/10M_pruned.bin -nc --directory-prefix models
+	@wget https://nessie.ilab.sztaki.hu/~levai/bert_guessinggame_resources/hu_fasttext_100.gensim -nc --directory-prefix models
+	@wget https://nessie.ilab.sztaki.hu/~levai/bert_guessinggame_resources/hu_fasttext_100.gensim.wv.vectors_ngrams.npy -nc --directory-prefix models
+	@echo "$(GREEN)Models are successfully downloaded and trie successfully built!$(NOCOLOR)"
 	# We can download even larger wordlist here if we find it useful.
 .PHONY: download
+
+kenlm:
+	@echo "This will take around 10-30 minutes, and needs 8 GBs of RAM!"
+	@sudo apt-get install build-essential libboost-all-dev cmake zlib1g-dev libbz2-dev liblzma-dev
+	@git clone https://github.com/kpu/kenlm
+	@cd kenlm
+	@mkdir -p build
+	@cd build
+	@cmake ..
+	@make -j 4
+	@bin/lmplz -o 5 --prune 0 4 9 16 25 <../10M.spl >10M_pruned.arpa
+	@bin/build_binary 10M_pruned.arpa 10M_pruned.bin
+	@mv 10M_pruned.bin ../../models/
+.PHONY: kenlm
 
 test:
 	@$(VENVPYTHON) tests.py

@@ -5,7 +5,7 @@ import kenlm
 
 
 class KenLMGuesser:
-    def __init__(self, model_path: str = 'resources/10M_pruned.bin',
+    def __init__(self, model_path: str = 'models/10M_pruned.bin',
                  vocabulary_path: str = 'resources/wordlist_3M.csv'):
         self.model = kenlm.Model(model_path)
         self.vocabulary = defaultdict(list)
