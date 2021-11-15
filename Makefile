@@ -9,7 +9,7 @@ VENVDIR := $(CURDIR)/venv
 VENVPIP := $(VENVDIR)/bin/python -m pip
 VENVPYTHON := $(VENVDIR)/bin/python
 
-all: venv download test
+all: venv corp download test
 	@echo "$(GREEN)The package is succesfully installed into the virtualenv ($(VENVDIR)) and all tests are OK!$(NOCOLOR)"
 
 venv:
@@ -19,7 +19,7 @@ venv:
 	@which $(VENVPYTHON)
 	@$(VENVPYTHON) --version
 	@$(VENVPIP) install wheel
-	@$(VENVPIP) install -r requirements.txt
+	@$(VENVPIP) install -e .
 	@echo "$(GREEN)Virtualenv is succesfully created!$(NOCOLOR)"
 .PHONY: venv
 
@@ -33,7 +33,7 @@ corp:
 
 download:
 	@mkdir -pv models
-	@$(VENVPYTHON) bertfluff/bert_guesser.py
+	@$(VENVPYTHON) src/bertfluff/bert_guesser.py
 	@wget https://nessie.ilab.sztaki.hu/~levai/bert_guessinggame_resources/10M_pruned.bin -nc --directory-prefix models
 	@wget https://nessie.ilab.sztaki.hu/~levai/bert_guessinggame_resources/hu_fasttext_100.gensim -nc --directory-prefix models
 	@wget https://nessie.ilab.sztaki.hu/~levai/bert_guessinggame_resources/hu_fasttext_100.gensim.wv.vectors_ngrams.npy -nc --directory-prefix models
