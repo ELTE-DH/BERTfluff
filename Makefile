@@ -23,6 +23,12 @@ venv:
 	@echo "$(GREEN)Virtualenv is succesfully created!$(NOCOLOR)"
 .PHONY: venv
 
+corp:
+	@echo "Preparing contextbank."
+	@$(VENVPYTHON) create_corpus/prepare_corp.py
+	@echo "Contextbank is successfully created!"
+.PHONY: corp
+
 download:
 	@mkdir -pv models
 	@$(VENVPYTHON) bertfluff/guessers/bert_guesser.py
