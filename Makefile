@@ -25,6 +25,8 @@ venv:
 
 corp:
 	@echo "Preparing contextbank."
+	@wget https://nessie.ilab.sztaki.hu/~levai/bert_guessinggame_resources/webcorp_2_freqs.tsv -nc --directory-prefix resources
+	@cut -f1 resources/webcorp_2_freqs.tsv | head -n 3000000 > wordlist_3M_unfiltered.csv
 	@$(VENVPYTHON) create_corpus/prepare_corp.py
 	@echo "Contextbank is successfully created!"
 .PHONY: corp
