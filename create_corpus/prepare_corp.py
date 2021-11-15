@@ -66,5 +66,5 @@ def create_corpora(resources_dir: str = 'resources'):
 
 
 if __name__ == '__main__':
-    create_counters('../resources/tokenized_100k_corp.spl', '../resources/freqs.csv')
-    filter_wordlist('../resources/wordlist_3M_unfiltered.csv', '../resources/wordlist_3M.csv')
+    create_counters('resources/tokenized_100k_corp.spl', 'resources/freqs.csv')
+    filter_wordlist('resources/wordlist_3M_unfiltered.csv', 'resources/wordlist_3M.csv')
