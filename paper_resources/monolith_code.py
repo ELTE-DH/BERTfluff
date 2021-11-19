@@ -1,12 +1,13 @@
+import argparse
 import collections
 import gzip
 import json
 import multiprocessing
+import os
 import random
 from itertools import islice, tee
 from string import ascii_lowercase
-from typing import Tuple, List
-import os
+from typing import Tuple, List, Iterable
 
 import requests
 import tqdm
@@ -18,7 +19,6 @@ FREQUENCIES = collections.defaultdict(int)
 FREQ_LOWER_LIMIT = 100
 SERVER = 'http://127.0.0.1:8000'
 os.environ["TOKENIZERS_PARALLELISM"] = "false"
-
 
 with open('non_words.txt', encoding='UTF-8') as fh:
     for elem in fh:
@@ -72,6 +72,20 @@ def guess_bert(word: str, left_context: str, right_context: str, no_subwords: in
     return response.json()['guesses']
 
 
+def make_context_bank(left_max_context: int, right_max_context: int) \
+        -> Iterable[Tuple[str, Tuple[str], Tuple[str], int]]:
+    tokenizer = AutoTokenizer.from_pretrained("SZTAKI-HLT/hubert-base-cc")
+    context_bank: List[Tuple[str, Tuple[str], Tuple[str], int]] = []
+    with gzip.open('shuffled_final.txt.gz', 'rt') as infile:
+        for line in infile:
+            sentence = line.strip().split(' ')
+            n_grams = get_ngram(sentence, left_cont_len=left_max_context, right_cont_len=right_max_context)
+            for n_gram in n_grams:
+                word, left, right = n_gram
+                no_subwords = len(tokenizer(word, add_special_tokens=False)['input_ids'])
+                yield word, left, right, no_subwords
+
+
 def make_context_length_measurement_both_side(args: Tuple[str, Tuple[str], Tuple[str], int]):
     word, left_context, right_context, no_subwords = args
     context_max_length = len(left_context)
@@ -109,26 +123,44 @@ def make_context_length_measurement_both_side(args: Tuple[str, Tuple[str], Tuple
     return output
 
 
-def make_context_bank(left_max_context: int, right_max_context: int, file_limit: int) \
-        -> List[Tuple[str, Tuple[str], Tuple[str], int]]:
-    tokenizer = AutoTokenizer.from_pretrained("SZTAKI-HLT/hubert-base-cc")
-    context_bank: List[Tuple[str, Tuple[str], Tuple[str], int]] = []
-    with gzip.open('shuffled_final.txt.gz', 'rt') as infile:
-        for i, line in tqdm.tqdm(enumerate(infile), total=file_limit):
-            if i >= file_limit:
-                break
-
-            sentence = line.strip().split(' ')
-            n_grams = get_ngram(sentence, left_cont_len=left_max_context, right_cont_len=right_max_context)
-            for n_gram in n_grams:
-                word, left, right = n_gram
-                no_subwords = len(tokenizer(word, add_special_tokens=False)['input_ids'])
-                context_bank.append((word, left, right, no_subwords))
-
-    return context_bank
-
-
 def make_right_context_measurement(args: Tuple[str, Tuple[str], Tuple[str], int]):
+    word, left_context, right_context, no_subwords = args
+    context_max_length = len(right_context)
+    context_min_length = 1
+    # how long of a context each model needs
+    bert_context_need = -1
+    kenlm_context_need = -1
+    bert_rank: List[int] = []
+    kenlm_rank: List[int] = []
+    bert_guesses: List[List[str]] = []
+    kenlm_guesses: List[List[str]] = []
+
+    for context_size in range(context_min_length, context_max_length):
+        left, right = '', ' '.join(right_context[:context_size])
+        if bert_context_need == -1:
+            bert_guess = guess_bert(word, left, right, no_subwords)
+            bert_guesses.append(bert_guess)
+            if bert_guess[0] == word:
+                bert_context_need = context_size
+            bert_rank.append(bert_guess.index(word) if word in bert_guess else -1)
+        if kenlm_context_need == -1:
+            kenlm_guess = guess_kenlm(word, left, right, no_subwords)
+            kenlm_guesses.append(kenlm_guess)
+            if kenlm_guess[0] == word:
+                kenlm_context_need = context_size
+            kenlm_rank.append(kenlm_guess.index(word) if word in kenlm_guess else -1)
+        # if both have guessed
+        if kenlm_context_need != -1 and bert_context_need != -1:
+            break
+
+    output = {'bert_guess': bert_context_need, 'bert_rank': bert_rank,
+              'kenlm_guess': kenlm_context_need, 'kenlm_rank': kenlm_rank,
+              'input': args, 'bert_output': bert_guesses, 'kenlm_output': kenlm_guesses}
+
+    return output
+
+
+def make_left_context_measurement(args: Tuple[str, Tuple[str], Tuple[str], int]):
     word, left_context, right_context, no_subwords = args
     context_max_length = len(left_context)
     context_min_length = 1
@@ -141,7 +173,7 @@ def make_right_context_measurement(args: Tuple[str, Tuple[str], Tuple[str], int]
     kenlm_guesses: List[List[str]] = []
 
     for context_size in range(context_min_length, context_max_length):
-        left, right = ' '.join(left_context[-context_size:]), ' '.join(right_context[:context_size])
+        left, right = ' '.join(left_context[-context_size:]), ''
         if bert_context_need == -1:
             bert_guess = guess_bert(word, left, right, no_subwords)
             bert_guesses.append(bert_guess)
@@ -166,11 +198,16 @@ def make_right_context_measurement(args: Tuple[str, Tuple[str], Tuple[str], int]
 
 
 def main():
-    file_limit = 1000
-    sample_size = 1000
+    parser = argparse.ArgumentParser()
+    parser.add_argument('--context_size', type=int)
+    parser.add_argument('--side', type=str, choices=['left', 'both', 'right'])
+    parser.add_argument('--sample_size', type=int)
+    args = vars(parser.parse_args())
+    side = args['side']
+    sample_size = args['sample_size']
     random.seed(42069)
-    left_context = 0
-    right_context = 6
+    left_context = args['context_size']
+    right_context = args['context_size']
 
     with open('../resources/webcorp_2_freqs.tsv') as infile:
         for line in infile:
@@ -183,18 +220,22 @@ def main():
             except ValueError:
                 continue
 
-    context_bank = make_context_bank(left_context, right_context, file_limit)
+    contexts = []
+    for context in tqdm.tqdm(make_context_bank(left_context, right_context), total=sample_size):
+        contexts.append(context)
+        if len(contexts) >= sample_size:
+            break
+    print(f'Number of contexts: {len(contexts)}')
 
-    print(f'Number of contexts: {len(context_bank)}')
-    print(f'Using first {sample_size}')
+    func_map = {'left': make_left_context_measurement,
+                'both': make_context_length_measurement_both_side,
+                'right': make_right_context_measurement}
 
-    contexts = context_bank[:sample_size]
-    results = []
     pool = multiprocessing.Pool(processes=64)
     results = list(
-        tqdm.tqdm(pool.imap_unordered(make_context_length_measurement_both_side, contexts), total=len(contexts)))
+        tqdm.tqdm(pool.imap_unordered(func_map[side], contexts), total=len(contexts)))
 
-    with open(f'first_results_{sample_size}.json', 'w') as outfile:
+    with open(f'{side}_context_{sample_size}.json', 'w') as outfile:
         json.dump(results, outfile, ensure_ascii=False)
     print(1)
 
