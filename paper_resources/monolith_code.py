@@ -16,7 +16,6 @@ NON_WORDS = set()
 FREQUENCIES = collections.defaultdict(int)
 FREQ_LOWER_LIMIT = 100
 SERVER = 'http://127.0.0.1:8000'
-SAMPLE_SIZE = 100
 
 with open('non_words.txt', encoding='UTF-8') as fh:
     for elem in fh:
@@ -44,13 +43,12 @@ def get_ngram(sentence: List[List[str]], word_min_len=6, word_max_len=15,
     return possible_ngrams
 
 
-def guess_kenlm(args: List[str]) -> bool:
-    word, left_context, right_context = args
+def guess_kenlm(word: str, left_context: str, right_context: str, _: int) -> List[str]:
     missing_word = '#' * len(word)
     local_params = {'no_of_subwords': 1,
                     'prev_guesses[]': [],
                     'retry_wrong': False,
-                    'top_n': 5,
+                    'top_n': 10,
                     'guesser': 'kenlm',
                     'missing_token': missing_word,
                     'contexts[]': [' '.join([left_context, missing_word, right_context])]}
@@ -58,13 +56,12 @@ def guess_kenlm(args: List[str]) -> bool:
     return response.json()['guesses']
 
 
-def guess_bert(args: Tuple[str, Tuple[str], Tuple[str], int]):
-    word, left_context, right_context, no_subwords = args
+def guess_bert(word: str, left_context: str, right_context: str, no_subwords: int) -> List[str]:
     missing_word = '#' * len(word)
     payload = {'no_of_subwords': no_subwords,
                'prev_guesses[]': [],
                'retry_wrong': False,
-               'top_n': 5,
+               'top_n': 10,
                'guesser': 'bert',
                'missing_token': missing_word,
                'contexts[]': [' '.join([left_context, missing_word, right_context])]}
@@ -72,10 +69,40 @@ def guess_bert(args: Tuple[str, Tuple[str], Tuple[str], int]):
     return response.json()['guesses']
 
 
+def make_context_length_measurement_both_side(word: str, left_context: List[str], right_context: List[str],
+                                              no_subwords: int):
+    context_max_length = len(left_context)
+    context_min_length = 1
+    # how long of a context each model needs
+    bert_context_need = -1
+    kenlm_context_need = -1
+    bert_rank: List[int] = []
+    kenlm_rank: List[int] = []
+
+    for context_size in range(context_min_length, context_max_length):
+        left, right = ' '.join(left_context[-context_size:]), ' '.join(right_context[:context_size])
+        if bert_context_need == -1:
+            bert_guess = guess_bert(word, left, right, no_subwords)
+            bert_rank.append(bert_guess.index(word) if word in bert_guess else -1)
+        if kenlm_context_need == -1:
+            kenlm_guess = guess_kenlm(word, left, right, no_subwords)
+            kenlm_rank.append(kenlm_guess.index(word) if word in kenlm_guess else -1)
+        # if both have guessed
+        if kenlm_context_need != -1 and bert_context_need != -1:
+            break
+
+    output = {'bert_guess': bert_context_need, 'bert_rank': bert_rank,
+              'kenlm_guess': kenlm_context_need, 'kenlm_rank': kenlm_rank}
+
+    return output
+
+
 def main():
+    file_limit = 1000
+    sample_size = 1000
     random.seed(42069)
-    left_context = 5
-    right_context = 5
+    left_context = 6
+    right_context = 6
     tokenizer = AutoTokenizer.from_pretrained("SZTAKI-HLT/hubert-base-cc")
 
     with open('../resources/webcorp_2_freqs.tsv') as infile:
@@ -89,22 +116,23 @@ def main():
             except ValueError:
                 continue
 
-    contexts: List[Tuple[str, Tuple[str], Tuple[str]]] = []
+    context_bank: List[Tuple[str, Tuple[str], Tuple[str], int]] = []
     with gzip.open('shuffled_final.txt.gz', 'rt') as infile:
-        for i, line in tqdm.tqdm(enumerate(infile), total=SAMPLE_SIZE):
-            if i >= SAMPLE_SIZE:
+        for i, line in tqdm.tqdm(enumerate(infile), total=file_limit):
+            if i >= file_limit:
                 break
 
             sentence = line.strip().split(' ')
             n_grams = get_ngram(sentence, left_cont_len=left_context, right_cont_len=right_context)
             for n_gram in n_grams:
                 word, left, right = n_gram
-                no_subwords = tokenizer(word)
+                no_subwords = len(tokenizer(word, add_special_tokens=False)['input_ids'])
+                context_bank.append((word, left, right, no_subwords))
 
-    with open('output.csv', 'w') as outfile:
-        csv_writer = csv.writer(outfile)
-        for line in sorted(contexts):
-            csv_writer.writerow(line)
+    print(f'Number of contexts: {len(context_bank)}')
+    print(f'Using first {sample_size}')
+
+    contexts = context_bank[:sample_size]
 
 
 def guess():
@@ -121,10 +149,7 @@ def guess():
 
     random.seed(42069)
 
-    with open('webcorp_1_contextbank_100.csv') as infile:
-        csv_reader = csv.reader(infile)
-        contextbank = random.sample([line for line in csv_reader], k=SAMPLE_SIZE)
-
+    contextbank = []
     pool = multiprocessing.Pool(processes=128)
     results = list(tqdm.tqdm(pool.imap(guess_kenlm, contextbank), total=len(contextbank)))
 
