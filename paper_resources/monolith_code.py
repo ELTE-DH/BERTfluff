@@ -202,6 +202,7 @@ def main():
     parser.add_argument('--context_size', type=int)
     parser.add_argument('--side', type=str, choices=['left', 'both', 'right'])
     parser.add_argument('--sample_size', type=int)
+    parser.add_argument('--n_jobs', type=int, default=64)
     args = vars(parser.parse_args())
     side = args['side']
     sample_size = args['sample_size']
@@ -231,7 +232,7 @@ def main():
                 'both': make_context_length_measurement_both_side,
                 'right': make_right_context_measurement}
 
-    pool = multiprocessing.Pool(processes=64)
+    pool = multiprocessing.Pool(processes=args['n_jobs'])
     results = list(
         tqdm.tqdm(pool.imap_unordered(func_map[side], contexts), total=len(contexts)))
 
