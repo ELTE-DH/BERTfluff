@@ -198,10 +198,56 @@ def make_left_context_measurement(args: Tuple[str, Tuple[str], Tuple[str], int, 
     return output
 
 
+def tactic_1_one_left_one_right(args: Tuple[str, Tuple[str], Tuple[str], int, int, str]):
+    word, left_context, right_context, no_subwords, index, tactic = args
+    context_max_length = len(left_context)
+    full_tactic = make_full_tactic(tactic, context_max_length)
+    # how long of a context each model needs
+    bert_context_need = -1
+    kenlm_context_need = -1
+    bert_rank: List[int] = []
+    kenlm_rank: List[int] = []
+    bert_guesses: List[List[str]] = []
+    kenlm_guesses: List[List[str]] = []
+
+    for i, _ in enumerate(full_tactic, 1):
+        left_size = full_tactic[:i].count('l')
+        right_size = full_tactic[:i].count('r')
+        right = ' '.join(right_context[:right_size])
+        left = ' '.join(left_context[-left_size:]) if left_size else ''
+        if bert_context_need == -1:
+            bert_guess = guess_bert(word, left, right, no_subwords)
+            bert_guesses.append(bert_guess)
+            if bert_guess[0] == word:
+                bert_context_need = i
+            bert_rank.append(bert_guess.index(word) if word in bert_guess else -1)
+        if kenlm_context_need == -1:
+            kenlm_guess = guess_kenlm(word, left, right, no_subwords)
+            kenlm_guesses.append(kenlm_guess)
+            if kenlm_guess[0] == word:
+                kenlm_context_need = i
+            kenlm_rank.append(kenlm_guess.index(word) if word in kenlm_guess else -1)
+        # if both have guessed
+        if kenlm_context_need != -1 and bert_context_need != -1:
+            break
+
+
+    output = {'bert_guess': bert_context_need, 'bert_rank': bert_rank,
+              'kenlm_guess': kenlm_context_need, 'kenlm_rank': kenlm_rank,
+              'input': args, 'bert_output': bert_guesses, 'kenlm_output': kenlm_guesses}
+
+    return output
+
+
+def make_full_tactic(tactic: str, max_con: int) -> str:
+    rep = max([tactic.count('l'), tactic.count('r')])
+    return (max_con // rep) * tactic
+
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('--context_size', type=int)
-    parser.add_argument('--side', type=str, choices=['left', 'both', 'right'])
+    parser.add_argument('--side', type=str)
     parser.add_argument('--sample_size', type=int)
     parser.add_argument('--n_jobs', type=int, default=64)
     args = vars(parser.parse_args())
@@ -233,9 +279,15 @@ def main():
                 'both': make_context_length_measurement_both_side,
                 'right': make_right_context_measurement}
 
+    if side in ['left', 'both', 'right']:
+        func = func_map['side']
+    else:
+        contexts = [context + (args['side'],) for context in contexts]
+        func = tactic_1_one_left_one_right
+
     pool = multiprocessing.Pool(processes=args['n_jobs'])
     results = list(
-        tqdm.tqdm(pool.imap_unordered(func_map[side], contexts), total=len(contexts)))
+        tqdm.tqdm(pool.imap_unordered(func, contexts), total=len(contexts)))
 
     with open(f'{side}_context_{sample_size}.json', 'w') as outfile:
         json.dump(results, outfile, ensure_ascii=False)
