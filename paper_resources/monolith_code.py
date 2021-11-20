@@ -7,7 +7,7 @@ import os
 import random
 from itertools import islice, tee
 from string import ascii_lowercase
-from typing import Tuple, List, Iterable
+from typing import Tuple, List, Iterable, Iterator
 
 import requests
 import tqdm
@@ -73,9 +73,8 @@ def guess_bert(word: str, left_context: str, right_context: str, no_subwords: in
 
 
 def make_context_bank(left_max_context: int, right_max_context: int) \
-        -> Iterable[Tuple[str, Tuple[str], Tuple[str], int]]:
+        -> Iterator[Tuple[str, Tuple[str], Tuple[str], int]]:
     tokenizer = AutoTokenizer.from_pretrained("SZTAKI-HLT/hubert-base-cc")
-    context_bank: List[Tuple[str, Tuple[str], Tuple[str], int]] = []
     with gzip.open('shuffled_final.txt.gz', 'rt') as infile:
         for line in infile:
             sentence = line.strip().split(' ')
@@ -86,7 +85,7 @@ def make_context_bank(left_max_context: int, right_max_context: int) \
                 yield word, left, right, no_subwords
 
 
-def make_context_length_measurement_both_side(args: Tuple[str, Tuple[str], Tuple[str], int]):
+def make_context_length_measurement_both_side(args: Tuple[str, Tuple[str], Tuple[str], int, int]):
     word, left_context, right_context, no_subwords = args
     context_max_length = len(left_context)
     context_min_length = 1
@@ -123,7 +122,7 @@ def make_context_length_measurement_both_side(args: Tuple[str, Tuple[str], Tuple
     return output
 
 
-def make_right_context_measurement(args: Tuple[str, Tuple[str], Tuple[str], int]):
+def make_right_context_measurement(args: Tuple[str, Tuple[str], Tuple[str], int, int]):
     word, left_context, right_context, no_subwords = args
     context_max_length = len(right_context)
     context_min_length = 1
@@ -136,7 +135,8 @@ def make_right_context_measurement(args: Tuple[str, Tuple[str], Tuple[str], int]
     kenlm_guesses: List[List[str]] = []
 
     for context_size in range(context_min_length, context_max_length):
-        left, right = '', ' '.join(right_context[:context_size])
+        left = ''
+        right = ' '.join(right_context[:context_size])
         if bert_context_need == -1:
             bert_guess = guess_bert(word, left, right, no_subwords)
             bert_guesses.append(bert_guess)
@@ -160,8 +160,8 @@ def make_right_context_measurement(args: Tuple[str, Tuple[str], Tuple[str], int]
     return output
 
 
-def make_left_context_measurement(args: Tuple[str, Tuple[str], Tuple[str], int]):
-    word, left_context, right_context, no_subwords = args
+def make_left_context_measurement(args: Tuple[str, Tuple[str], Tuple[str], int, int]):
+    word, left_context, right_context, no_subwords, index = args
     context_max_length = len(left_context)
     context_min_length = 1
     # how long of a context each model needs
@@ -173,7 +173,8 @@ def make_left_context_measurement(args: Tuple[str, Tuple[str], Tuple[str], int])
     kenlm_guesses: List[List[str]] = []
 
     for context_size in range(context_min_length, context_max_length):
-        left, right = ' '.join(left_context[-context_size:]), ''
+        left = ' '.join(left_context[-context_size:])
+        right = ''
         if bert_context_need == -1:
             bert_guess = guess_bert(word, left, right, no_subwords)
             bert_guesses.append(bert_guess)
@@ -222,8 +223,8 @@ def main():
                 continue
 
     contexts = []
-    for context in tqdm.tqdm(make_context_bank(left_context, right_context), total=sample_size):
-        contexts.append(context)
+    for i, context in tqdm.tqdm(enumerate(make_context_bank(left_context, right_context)), total=sample_size):
+        contexts.append(context + (i,))
         if len(contexts) >= sample_size:
             break
     print(f'Number of contexts: {len(contexts)}')
