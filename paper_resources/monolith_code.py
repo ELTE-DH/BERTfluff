@@ -7,7 +7,7 @@ import os
 import random
 from itertools import islice, tee
 from string import ascii_lowercase
-from typing import Tuple, List, Iterable, Iterator
+from typing import Tuple, List, Iterator
 
 import requests
 import tqdm
@@ -46,28 +46,34 @@ def get_ngram(sentence: List[List[str]], word_min_len=6, word_max_len=15,
     return possible_ngrams
 
 
-def guess_kenlm(word: str, left_context: str, right_context: str, _: int) -> List[str]:
+def guess_kenlm(word: str, left_context: List[str], right_context: List[str], _: int, previous_guesses: List[str] = None) \
+        -> List[str]:
+    if previous_guesses is None:
+        previous_guesses = []
     missing_word = '#' * len(word)
     local_params = {'no_of_subwords': 1,
-                    'prev_guesses[]': [],
+                    'prev_guesses[]': previous_guesses,
                     'retry_wrong': False,
                     'top_n': 10,
                     'guesser': 'kenlm',
                     'missing_token': missing_word,
-                    'contexts[]': [' '.join([left_context, missing_word, right_context])]}
+                    'contexts[]': [f'{left} {missing_word} {right}' for left, right in zip(left_context, right_context)]}
     response = requests.post(f'{SERVER}/guess', json=local_params)
     return response.json()['guesses']
 
 
-def guess_bert(word: str, left_context: str, right_context: str, no_subwords: int) -> List[str]:
+def guess_bert(word: str, left_context: List[str], right_context: List[str], no_subwords: int,
+               previous_guesses: List[str] = None) -> List[str]:
+    if previous_guesses is None:
+        previous_guesses = []
     missing_word = '#' * len(word)
     payload = {'no_of_subwords': no_subwords,
-               'prev_guesses[]': [],
+               'prev_guesses[]': previous_guesses,
                'retry_wrong': False,
                'top_n': 10,
                'guesser': 'bert',
                'missing_token': missing_word,
-               'contexts[]': [' '.join([left_context, missing_word, right_context])]}
+               'contexts[]': [f'{left} {missing_word} {right}' for left, right in zip(left_context, right_context)]}
     response = requests.post(f'{SERVER}/guess', json=payload)
     return response.json()['guesses']
 
@@ -85,8 +91,8 @@ def make_context_bank(left_max_context: int, right_max_context: int) \
                 yield word, left, right, no_subwords
 
 
-def make_context_length_measurement_both_side(args: Tuple[str, Tuple[str], Tuple[str], int, int]):
-    word, left_context, right_context, no_subwords = args
+def make_context_length_measurement_both_side(args: Tuple[str, Tuple[str], Tuple[str], int, int, str, bool, bool]):
+    word, left_context, right_context, no_subwords, index, tactic, store_previous, multi_guess = args
     context_max_length = len(left_context)
     context_min_length = 1
     # how long of a context each model needs
@@ -98,15 +104,20 @@ def make_context_length_measurement_both_side(args: Tuple[str, Tuple[str], Tuple
     kenlm_guesses: List[List[str]] = []
 
     for context_size in range(context_min_length, context_max_length):
-        left, right = ' '.join(left_context[-context_size:]), ' '.join(right_context[:context_size])
+        if multi_guess:
+
+        else:
+            left, right = ' '.join(left_context[-context_size:]), ' '.join(right_context[:context_size])
         if bert_context_need == -1:
-            bert_guess = guess_bert(word, left, right, no_subwords)
+            bert_guess = guess_bert(word, [left], [right], no_subwords,
+                                    [guess[0] for guess in bert_guesses] if store_previous else [])
             bert_guesses.append(bert_guess)
             if bert_guess[0] == word:
                 bert_context_need = context_size
             bert_rank.append(bert_guess.index(word) if word in bert_guess else -1)
         if kenlm_context_need == -1:
-            kenlm_guess = guess_kenlm(word, left, right, no_subwords)
+            kenlm_guess = guess_kenlm(word, left, right, no_subwords,
+                                      [guess[0] for guess in kenlm_guesses] if store_previous else [])
             kenlm_guesses.append(kenlm_guess)
             if kenlm_guess[0] == word:
                 kenlm_context_need = context_size
@@ -122,8 +133,8 @@ def make_context_length_measurement_both_side(args: Tuple[str, Tuple[str], Tuple
     return output
 
 
-def make_right_context_measurement(args: Tuple[str, Tuple[str], Tuple[str], int, int]):
-    word, left_context, right_context, no_subwords = args
+def make_right_context_measurement(args: Tuple[str, Tuple[str], Tuple[str], int, int, str, bool]):
+    word, left_context, right_context, no_subwords, index, tactic, store_previous = args
     context_max_length = len(right_context)
     context_min_length = 1
     # how long of a context each model needs
@@ -138,13 +149,15 @@ def make_right_context_measurement(args: Tuple[str, Tuple[str], Tuple[str], int,
         left = ''
         right = ' '.join(right_context[:context_size])
         if bert_context_need == -1:
-            bert_guess = guess_bert(word, left, right, no_subwords)
+            bert_guess = guess_bert(word, left, right, no_subwords,
+                                    [guess[0] for guess in bert_guesses] if store_previous else [])
             bert_guesses.append(bert_guess)
             if bert_guess[0] == word:
                 bert_context_need = context_size
             bert_rank.append(bert_guess.index(word) if word in bert_guess else -1)
         if kenlm_context_need == -1:
-            kenlm_guess = guess_kenlm(word, left, right, no_subwords)
+            kenlm_guess = guess_kenlm(word, left, right, no_subwords,
+                                      [guess[0] for guess in kenlm_guesses] if store_previous else [])
             kenlm_guesses.append(kenlm_guess)
             if kenlm_guess[0] == word:
                 kenlm_context_need = context_size
@@ -160,8 +173,8 @@ def make_right_context_measurement(args: Tuple[str, Tuple[str], Tuple[str], int,
     return output
 
 
-def make_left_context_measurement(args: Tuple[str, Tuple[str], Tuple[str], int, int]):
-    word, left_context, right_context, no_subwords, index = args
+def make_left_context_measurement(args: Tuple[str, Tuple[str], Tuple[str], int, int, str, bool]):
+    word, left_context, right_context, no_subwords, index, tactic, store_previous = args
     context_max_length = len(left_context)
     context_min_length = 1
     # how long of a context each model needs
@@ -176,13 +189,15 @@ def make_left_context_measurement(args: Tuple[str, Tuple[str], Tuple[str], int, 
         left = ' '.join(left_context[-context_size:])
         right = ''
         if bert_context_need == -1:
-            bert_guess = guess_bert(word, left, right, no_subwords)
+            bert_guess = guess_bert(word, left, right, no_subwords,
+                                    [guess[0] for guess in bert_guesses] if store_previous else [])
             bert_guesses.append(bert_guess)
             if bert_guess[0] == word:
                 bert_context_need = context_size
             bert_rank.append(bert_guess.index(word) if word in bert_guess else -1)
         if kenlm_context_need == -1:
-            kenlm_guess = guess_kenlm(word, left, right, no_subwords)
+            kenlm_guess = guess_kenlm(word, left, right, no_subwords,
+                                      [guess[0] for guess in kenlm_guesses] if store_previous else [])
             kenlm_guesses.append(kenlm_guess)
             if kenlm_guess[0] == word:
                 kenlm_context_need = context_size
@@ -198,8 +213,8 @@ def make_left_context_measurement(args: Tuple[str, Tuple[str], Tuple[str], int, 
     return output
 
 
-def tactic_1_one_left_one_right(args: Tuple[str, Tuple[str], Tuple[str], int, int, str]):
-    word, left_context, right_context, no_subwords, index, tactic = args
+def tactic_1_one_left_one_right(args: Tuple[str, Tuple[str], Tuple[str], int, int, str, bool]):
+    word, left_context, right_context, no_subwords, index, tactic, store_previous = args
     context_max_length = len(left_context)
     full_tactic = make_full_tactic(tactic, context_max_length)
     # how long of a context each model needs
@@ -216,13 +231,15 @@ def tactic_1_one_left_one_right(args: Tuple[str, Tuple[str], Tuple[str], int, in
         right = ' '.join(right_context[:right_size])
         left = ' '.join(left_context[-left_size:]) if left_size else ''
         if bert_context_need == -1:
-            bert_guess = guess_bert(word, left, right, no_subwords)
+            bert_guess = guess_bert(word, left, right, no_subwords,
+                                    [guess[0] for guess in bert_guesses] if store_previous else [])
             bert_guesses.append(bert_guess)
             if bert_guess[0] == word:
                 bert_context_need = i
             bert_rank.append(bert_guess.index(word) if word in bert_guess else -1)
         if kenlm_context_need == -1:
-            kenlm_guess = guess_kenlm(word, left, right, no_subwords)
+            kenlm_guess = guess_kenlm(word, left, right, no_subwords,
+                                      [guess[0] for guess in kenlm_guesses] if store_previous else [])
             kenlm_guesses.append(kenlm_guess)
             if kenlm_guess[0] == word:
                 kenlm_context_need = i
@@ -230,7 +247,6 @@ def tactic_1_one_left_one_right(args: Tuple[str, Tuple[str], Tuple[str], int, in
         # if both have guessed
         if kenlm_context_need != -1 and bert_context_need != -1:
             break
-
 
     output = {'bert_guess': bert_context_need, 'bert_rank': bert_rank,
               'kenlm_guess': kenlm_context_need, 'kenlm_rank': kenlm_rank,
@@ -250,9 +266,11 @@ def main():
     parser.add_argument('--side', type=str)
     parser.add_argument('--sample_size', type=int)
     parser.add_argument('--n_jobs', type=int, default=64)
+    parser.add_argument('--store_previous', action='store_true')
     args = vars(parser.parse_args())
-    side = args['side']
+    tactic = args['side']
     sample_size = args['sample_size']
+    store_previous = args['store_previous']
     random.seed(42069)
     left_context = args['context_size']
     right_context = args['context_size']
@@ -270,7 +288,7 @@ def main():
 
     contexts = []
     for i, context in tqdm.tqdm(enumerate(make_context_bank(left_context, right_context)), total=sample_size):
-        contexts.append(context + (i,))
+        contexts.append(context + (i, tactic, store_previous))
         if len(contexts) >= sample_size:
             break
     print(f'Number of contexts: {len(contexts)}')
@@ -279,17 +297,18 @@ def main():
                 'both': make_context_length_measurement_both_side,
                 'right': make_right_context_measurement}
 
-    if side in ['left', 'both', 'right']:
-        func = func_map['side']
+    if tactic in ['left', 'both', 'right']:
+        func = func_map[tactic]
     else:
-        contexts = [context + (args['side'],) for context in contexts]
         func = tactic_1_one_left_one_right
 
     pool = multiprocessing.Pool(processes=args['n_jobs'])
+    # results = [func(context) for context in contexts]
     results = list(
         tqdm.tqdm(pool.imap_unordered(func, contexts), total=len(contexts)))
 
-    with open(f'{side}_context_{sample_size}.json', 'w') as outfile:
+
+    with open(f'{tactic}_context_{sample_size}.json', 'w') as outfile:
         json.dump(results, outfile, ensure_ascii=False)
     print(1)
 
