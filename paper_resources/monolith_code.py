@@ -9,10 +9,10 @@ from itertools import islice, tee
 from string import ascii_lowercase
 from typing import Tuple, List, Iterator
 
+import pandas as pd
 import requests
 import tqdm
 from transformers import AutoTokenizer
-import pandas as pd
 
 LOWERCASE_LETTERS_HUN = set(ascii_lowercase + 'áéíóöőúüű')
 NON_WORDS = set()
@@ -47,7 +47,8 @@ def get_ngram(sentence: List[List[str]], word_min_len=6, word_max_len=15,
     return possible_ngrams
 
 
-def guess_kenlm(word: str, left_context: List[str], right_context: List[str], _: int, previous_guesses: List[str] = None) \
+def guess_kenlm(word: str, left_context: List[str], right_context: List[str], _: int,
+                previous_guesses: List[str] = None) \
         -> List[str]:
     if previous_guesses is None:
         previous_guesses = []
@@ -58,7 +59,8 @@ def guess_kenlm(word: str, left_context: List[str], right_context: List[str], _:
                     'top_n': 10,
                     'guesser': 'kenlm',
                     'missing_token': missing_word,
-                    'contexts[]': [f'{left} {missing_word} {right}' for left, right in zip(left_context, right_context)]}
+                    'contexts[]': [f'{left} {missing_word} {right}' for left, right in
+                                   zip(left_context, right_context)]}
     response = requests.post(f'{SERVER}/guess', json=local_params)
     return response.json()['guesses']
 
@@ -182,8 +184,6 @@ def context_length_measurement_both_side_conc(args: pd.DataFrame):
 
 def context_length_measurement_tactic_conc(args: pd.DataFrame):
     word, _, _, no_subwords, index, tactic, store_previous, multi_guess = args.iloc[0]
-
-    # how long of a context each model needs
     bert_context_need = -1
     kenlm_context_need = -1
     bert_rank: List[int] = []
@@ -193,7 +193,11 @@ def context_length_measurement_tactic_conc(args: pd.DataFrame):
     left_prev_contexts: List[str] = []
     right_prev_contexts: List[str] = []
 
-    for i, (left, right) in enumerate(args[['left_context', 'right_context']].values, 1):
+    for i, (left_full, right_full) in enumerate(args[['left_context', 'right_context']].values, 1):
+        left_size = tactic.count('l')
+        right_size = tactic.count('r')
+        right = ' '.join(left_full[:right_size])
+        left = ' '.join(right_full[-left_size:]) if left_size else ''
         left_prev_contexts.append(left)
         right_prev_contexts.append(right)
         left_contexts = left_prev_contexts if multi_guess else [left]
@@ -223,11 +227,9 @@ def context_length_measurement_tactic_conc(args: pd.DataFrame):
     return output
 
 
-
 def tactic_1_one_left_one_right(args: Tuple[str, Tuple[str], Tuple[str], int, int, str, bool, bool]):
     word, left_context, right_context, no_subwords, index, tactic, store_previous, multi_guess = args
     context_max_length = len(left_context)
-    full_tactic = make_full_tactic(tactic, context_max_length)
     # how long of a context each model needs
     bert_context_need = -1
     kenlm_context_need = -1
@@ -238,9 +240,9 @@ def tactic_1_one_left_one_right(args: Tuple[str, Tuple[str], Tuple[str], int, in
     left_prev_contexts: List[str] = []
     right_prev_contexts: List[str] = []
 
-    for i, _ in enumerate(full_tactic, 1):
-        left_size = full_tactic[:i].count('l')
-        right_size = full_tactic[:i].count('r')
+    for i, _ in enumerate(tactic, 1):
+        left_size = tactic[:i].count('l')
+        right_size = tactic[:i].count('r')
         right = ' '.join(right_context[:right_size])
         left = ' '.join(left_context[-left_size:]) if left_size else ''
         left_prev_contexts.append(left)
@@ -273,8 +275,11 @@ def tactic_1_one_left_one_right(args: Tuple[str, Tuple[str], Tuple[str], int, in
 
 
 def make_full_tactic(tactic: str, max_con: int) -> str:
-    rep = max([tactic.count('l'), tactic.count('r')])
-    return (max_con // rep) * tactic
+    if tactic == 'both':
+        return tactic
+    else:
+        rep = max([tactic.count('l'), tactic.count('r')])
+        return (max_con // rep) * tactic
 
 
 def main():
@@ -287,7 +292,6 @@ def main():
     parser.add_argument('--multi_guess', action='store_true')
     parser.add_argument('--multi_concord', type=int, default=0)
     args = vars(parser.parse_args())
-    tactic = args['side']
     sample_size = args['sample_size']
     multi_guess = args['multi_guess']
     store_previous = args['store_previous']
@@ -295,6 +299,8 @@ def main():
     left_context = args['context_size']
     right_context = args['context_size']
     group_min = args['multi_concord']
+    tactic = make_full_tactic(args['side'], left_context)
+    print(f'Full tactic is {tactic}')
 
     with open('../resources/webcorp_2_freqs.tsv') as infile:
         for line in infile:
@@ -343,7 +349,10 @@ def main():
         else:
             func = make_context_length_measurement_both_side
     else:
-        func = tactic_1_one_left_one_right
+        if group_min:
+            func = context_length_measurement_tactic_conc
+        else:
+            func = tactic_1_one_left_one_right
 
     pool = multiprocessing.Pool(processes=args['n_jobs'])
     if args['n_jobs'] == 1:
