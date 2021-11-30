@@ -1,97 +1,15 @@
-import argparse
-import collections
-import gzip
-import json
-import multiprocessing
-import os
-import random
-from itertools import islice, tee
-from string import ascii_lowercase
-from typing import Tuple, List, Iterator
+from typing import Tuple, List
+from collections import Counter
+from multiprocessing import Pool
+from json import dump as json_dump
+from argparse import ArgumentParser
+from random import seed as random_seed
 
+from tqdm import tqdm
 import pandas as pd
-import requests
-import tqdm
-from transformers import AutoTokenizer
 
-LOWERCASE_LETTERS_HUN = set(ascii_lowercase + 'áéíóöőúüű')
-NON_WORDS = set()
-FREQUENCIES = collections.defaultdict(int)
-FREQ_LOWER_LIMIT = 100
-SERVER = 'http://127.0.0.1:8000'
-os.environ["TOKENIZERS_PARALLELISM"] = "false"
-
-with open('non_words.txt', encoding='UTF-8') as fh:
-    for elem in fh:
-        elem = elem.rstrip()
-        NON_WORDS.add(elem)
-
-
-def n_gram_iter(input_iterator, n):
-    return zip(*(islice(it, i, None) for i, it in enumerate(tee(iter(input_iterator), n))))
-
-
-def get_ngram(sentence: List[List[str]], word_min_len=6, word_max_len=15,
-              left_cont_len=5, right_cont_len=5) -> List[Tuple[str, Tuple[str], Tuple[str]]]:
-    ngram_len = left_cont_len + 1 + right_cont_len
-    right_cont_index = left_cont_len + 1
-    possible_ngrams = []
-    for entry in n_gram_iter(sentence, ngram_len):
-        pre: Tuple[str] = entry[:left_cont_len]
-        word = entry[left_cont_len]
-        post: Tuple[str] = entry[right_cont_index:]
-        if word_min_len <= len(word) <= word_max_len and LOWERCASE_LETTERS_HUN.issuperset(word) and \
-                word not in NON_WORDS and FREQUENCIES[word] >= FREQ_LOWER_LIMIT:
-            possible_ngrams.append((word, pre, post))
-
-    return possible_ngrams
-
-
-def guess_kenlm(word: str, left_context: List[str], right_context: List[str], _: int,
-                previous_guesses: List[str] = None) \
-        -> List[str]:
-    if previous_guesses is None:
-        previous_guesses = []
-    missing_word = '#' * len(word)
-    local_params = {'no_of_subwords': 1,
-                    'prev_guesses[]': previous_guesses,
-                    'retry_wrong': False,
-                    'top_n': 10,
-                    'guesser': 'kenlm',
-                    'missing_token': missing_word,
-                    'contexts[]': [f'{left} {missing_word} {right}' for left, right in
-                                   zip(left_context, right_context)]}
-    response = requests.post(f'{SERVER}/guess', json=local_params)
-    return response.json()['guesses']
-
-
-def guess_bert(word: str, left_context: List[str], right_context: List[str], no_subwords: int,
-               previous_guesses: List[str] = None) -> List[str]:
-    if previous_guesses is None:
-        previous_guesses = []
-    missing_word = '#' * len(word)
-    payload = {'no_of_subwords': int(no_subwords),
-               'prev_guesses[]': previous_guesses,
-               'retry_wrong': False,
-               'top_n': 10,
-               'guesser': 'bert',
-               'missing_token': missing_word,
-               'contexts[]': [f'{left} {missing_word} {right}' for left, right in zip(left_context, right_context)]}
-    response = requests.post(f'{SERVER}/guess', json=payload)
-    return response.json()['guesses']
-
-
-def make_context_bank(left_max_context: int, right_max_context: int) \
-        -> Iterator[Tuple[str, Tuple[str], Tuple[str], int]]:
-    tokenizer = AutoTokenizer.from_pretrained("SZTAKI-HLT/hubert-base-cc")
-    with gzip.open('shuffled_final.txt.gz', 'rt') as infile:
-        for line in infile:
-            sentence = line.strip().split(' ')
-            n_grams = get_ngram(sentence, left_cont_len=left_max_context, right_cont_len=right_max_context)
-            for n_gram in n_grams:
-                word, left, right = n_gram
-                no_subwords = len(tokenizer(word, add_special_tokens=False)['input_ids'])
-                yield word, left, right, no_subwords
+from paper_resources.api import guess_kenlm, guess_bert
+from paper_resources.context_bank_mimic import make_context_bank, read_frequencies
 
 
 def make_context_length_measurement_both_side(args: Tuple[str, Tuple[str], Tuple[str], int, int, str, bool, bool]):
@@ -240,7 +158,7 @@ def tactic_1_one_left_one_right(args: Tuple[str, Tuple[str], Tuple[str], int, in
     left_prev_contexts: List[str] = []
     right_prev_contexts: List[str] = []
 
-    for i, _ in enumerate(tactic, 1):
+    for i, _ in enumerate(tactic, start=1):
         left_size = tactic[:i].count('l')
         right_size = tactic[:i].count('r')
         right = ' '.join(right_context[:right_size])
@@ -278,49 +196,32 @@ def make_full_tactic(tactic: str, max_con: int) -> str:
     if tactic == 'both':
         return tactic
     else:
-        rep = max([tactic.count('l'), tactic.count('r')])
+        rep = max(tactic.count('l'), tactic.count('r'))
         return (max_con // rep) * tactic
 
 
 def main():
-    parser = argparse.ArgumentParser()
-    parser.add_argument('--context_size', type=int)
-    parser.add_argument('--side', type=str)
-    parser.add_argument('--sample_size', type=int)
-    parser.add_argument('--n_jobs', type=int, default=64)
-    parser.add_argument('--store_previous', action='store_true')
-    parser.add_argument('--multi_guess', action='store_true')
-    parser.add_argument('--multi_concord', type=int, default=0)
-    args = vars(parser.parse_args())
+    args = parse_args()
     sample_size = args['sample_size']
     multi_guess = args['multi_guess']
     store_previous = args['store_previous']
-    random.seed(42069)
+    random_seed(42069)
     left_context = args['context_size']
     right_context = args['context_size']
     group_min = args['multi_concord']
     tactic = make_full_tactic(args['side'], left_context)
     print(f'Full tactic is {tactic}')
 
-    with open('../resources/webcorp_2_freqs.tsv') as infile:
-        for line in infile:
-            try:
-                word, freq = line.strip().split('\t')
-                freq = int(freq)
-                FREQUENCIES[word.strip()] = freq
-                if freq < FREQ_LOWER_LIMIT:
-                    break
-            except ValueError:
-                continue
+    read_frequencies('../resources/webcorp_2_freqs.tsv')
 
     contexts = []
     if group_min:
         raw_contexts = []
-        with tqdm.tqdm(total=sample_size) as pbar:
+        with tqdm(total=sample_size) as pbar:
             for i, context in enumerate(make_context_bank(left_context, right_context)):
                 raw_contexts.append(context + (i, tactic, store_previous, multi_guess))
                 if i % 1000 == 0 and i != 0:
-                    c = collections.Counter([i[0] for i in raw_contexts])
+                    c = Counter(i[0] for i in raw_contexts)
                     no_concordances = sum(freq > group_min for freq in c.values())
                     pbar.update(no_concordances - pbar.n)
                     if no_concordances >= sample_size:
@@ -336,7 +237,7 @@ def main():
                 break
 
     else:
-        for i, context in tqdm.tqdm(enumerate(make_context_bank(left_context, right_context)), total=sample_size):
+        for i, context in tqdm(enumerate(make_context_bank(left_context, right_context)), total=sample_size):
             contexts.append(context + (i, tactic, store_previous, multi_guess))
             if len(contexts) >= sample_size:
                 break
@@ -354,15 +255,33 @@ def main():
         else:
             func = tactic_1_one_left_one_right
 
-    pool = multiprocessing.Pool(processes=args['n_jobs'])
-    if args['n_jobs'] == 1:
-        results = [func(context) for context in contexts]
-    else:
-        results = list(tqdm.tqdm(pool.imap_unordered(func, contexts), total=len(contexts)))
+    results = exec_fun_for_contexts(func, contexts, args['n_jobs'])
 
     with open(f'{tactic}_context_{sample_size}_multi_{group_min}.json', 'w') as outfile:
-        json.dump(results, outfile, ensure_ascii=False)
+        json_dump(results, outfile, ensure_ascii=False)
     print(1)
+
+
+def exec_fun_for_contexts(func, contexts, n_jobs):
+    if n_jobs == 1:
+        results = [func(context) for context in contexts]
+    else:
+        with Pool(processes=n_jobs) as pool:
+            results = list(tqdm(pool.imap_unordered(func, contexts), total=len(contexts)))
+    return results
+
+
+def parse_args():
+    parser = ArgumentParser()
+    parser.add_argument('--context_size', type=int)
+    parser.add_argument('--side', type=str)
+    parser.add_argument('--sample_size', type=int)
+    parser.add_argument('--n_jobs', type=int, default=64)
+    parser.add_argument('--store_previous', action='store_true')
+    parser.add_argument('--multi_guess', action='store_true')
+    parser.add_argument('--multi_concord', type=int, default=0)
+    args = vars(parser.parse_args())
+    return args
 
 
 if __name__ == '__main__':

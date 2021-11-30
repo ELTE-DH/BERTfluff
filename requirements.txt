@@ -9,3 +9,4 @@ requests~=2.26.0
 tabulate
 sqlalchemy
 kenlm @ https://github.com/kpu/kenlm/archive/master.zip#egg=kenlm
+pandas
