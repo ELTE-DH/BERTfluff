@@ -1,10 +1,13 @@
+import csv
 import os
 import gzip
 import collections
+from collections import defaultdict, Counter
 from itertools import islice, tee
 from string import ascii_lowercase
 from typing import List, Tuple, Iterator
 
+from tqdm import tqdm
 from transformers import AutoTokenizer
 
 LOWERCASE_LETTERS_HUN = set(ascii_lowercase + 'áéíóöőúüű')
@@ -25,8 +28,11 @@ def _n_gram_iter(input_iterator, n):
     return zip(*(islice(it, i, None) for i, it in enumerate(tee(iter(input_iterator), n))))
 
 
-def _get_ngram(sentence: List[List[str]], word_min_len=6, word_max_len=15,
-               left_cont_len=5, right_cont_len=5) -> List[Tuple[str, Tuple[str], Tuple[str]]]:
+def get_ngram(sentence: List[List[str]], word_min_len=6, word_max_len=15,
+              left_cont_len=5, right_cont_len=5) -> List[Tuple[str, Tuple[str], Tuple[str]]]:
+    if left_cont_len == 0 and right_cont_len == 0:
+        return []
+
     ngram_len = left_cont_len + 1 + right_cont_len
     right_cont_index = left_cont_len + 1
     possible_ngrams = []
@@ -41,13 +47,13 @@ def _get_ngram(sentence: List[List[str]], word_min_len=6, word_max_len=15,
     return possible_ngrams
 
 
-def make_context_bank(left_max_context: int, right_max_context: int) \
-        -> Iterator[Tuple[str, Tuple[str], Tuple[str], int]]:
-    tokenizer = AutoTokenizer.from_pretrained("SZTAKI-HLT/hubert-base-cc")
-    with gzip.open('shuffled_final.txt.gz', 'rt') as infile:
+def make_context_bank(left_max_context: int, right_max_context: int, fname='shuffled_final.txt.gz',
+                      tokenizer_model='SZTAKI-HLT/hubert-base-cc') -> Iterator[Tuple[str, Tuple[str], Tuple[str], int]]:
+    tokenizer = AutoTokenizer.from_pretrained(tokenizer_model)
+    with gzip.open(fname, 'rt') as infile:
         for line in infile:
             sentence = line.strip().split(' ')
-            n_grams = _get_ngram(sentence, left_cont_len=left_max_context, right_cont_len=right_max_context)
+            n_grams = get_ngram(sentence, left_cont_len=left_max_context, right_cont_len=right_max_context)
             for n_gram in n_grams:
                 word, left, right = n_gram
                 no_subwords = len(tokenizer(word, add_special_tokens=False)['input_ids'])
@@ -65,3 +71,54 @@ def read_frequencies(infile_name):
                     break
             except ValueError:
                 continue
+
+
+def wirte_contexts_csv(fname, contexts):
+    with open(fname, 'w') as outfile:
+        csv_writer = csv.writer(outfile)
+        for pre, word, post in sorted(contexts):
+            csv_writer.writerow((word, ' '.join(pre), ' '.join(post)))
+
+
+def sample_contexts(left_context, right_context, group_min_size, sample_size):
+
+    if group_min_size > 0:
+        words = set()
+        conc_by_word = defaultdict(list)
+        with tqdm(total=sample_size) as pbar:
+            c = Counter()
+            for i, (word, left, right, no_subwords) in enumerate(make_context_bank(left_context, right_context)):
+                c[word] += 1
+                conc_by_word[word].append((word, left, right, no_subwords, i))
+
+                if i % 1000 == 0 and i != 0:
+                    no_concordances = 0
+                    words = set()
+                    for no_concordances, (curr_word, size_of_concordance) in enumerate(c.most_common()):
+                        if size_of_concordance <= group_min_size or no_concordances >= sample_size:
+                            break
+                        words.add(curr_word)
+                    else:
+                        no_concordances += 1  # All good, have to add one because indexing started at 0!
+
+                    pbar.update(no_concordances - pbar.n)
+                    if no_concordances >= sample_size:
+                        break
+
+        n = 0
+        for curr_word in words:
+            for curr_conc in conc_by_word[curr_word][:10]:
+                yield curr_conc
+                n += 1
+                # TODO feljebb még a conc mondta meg, hogy mennyi a sample nem a context!
+                if n >= sample_size:
+                    break
+            else:
+                continue
+            break
+    else:
+        for i, (word, left, right, no_subwords) in tqdm(enumerate(make_context_bank(left_context, right_context)),
+                                                        total=sample_size):
+            yield word, left, right, no_subwords, i
+            if i > sample_size:
+                break

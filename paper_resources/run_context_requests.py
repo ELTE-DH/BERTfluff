@@ -33,7 +33,6 @@ def main():
         'top_n': 5
     }
     sample_size = 100_000
-    data: List[Tuple[str, str, str, str]] = []
 
     random.seed(42069)
 
@@ -41,14 +40,15 @@ def main():
         csv_reader = csv.reader(infile)
         contextbank = random.sample([line for line in csv_reader], k=sample_size)
 
-    pool = multiprocessing.Pool(processes=128)
-    results = list(tqdm.tqdm(pool.imap(guess_kenlm, contextbank), total=len(contextbank)))
+    with multiprocessing.Pool(processes=128) as pool:
+        results = list(tqdm.tqdm(pool.imap(guess_kenlm, contextbank), total=len(contextbank)))
 
     with open('kenlm_1long100_largemodel_100k_guesses.csv', 'w') as outfile:
         csv_writer = csv.writer(outfile)
         for result, context in zip(results, contextbank):
             csv_writer.writerow(result + context)
     print(1)
+
 
 if __name__ == '__main__':
     main()
