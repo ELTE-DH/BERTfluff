@@ -1,4 +1,3 @@
-import csv
 import os
 import gzip
 import collections
@@ -13,15 +12,10 @@ from transformers import AutoTokenizer
 LOWERCASE_LETTERS_HUN = set(ascii_lowercase + 'áéíóöőúüű')
 FREQUENCIES = collections.defaultdict(int)
 FREQ_LOWER_LIMIT = 100
-
-with open('non_words.txt', encoding='UTF-8') as fh:
-    NON_WORDS = set()
-    for elem in fh:
-        elem = elem.rstrip()
-        NON_WORDS.add(elem)
+NON_WORDS = set()
 
 
-os.environ["TOKENIZERS_PARALLELISM"] = "false"
+os.environ['TOKENIZERS_PARALLELISM'] = 'false'
 
 
 def _n_gram_iter(input_iterator, n):
@@ -52,7 +46,7 @@ def make_context_bank(left_max_context: int, right_max_context: int, fname='shuf
     tokenizer = AutoTokenizer.from_pretrained(tokenizer_model)
     with gzip.open(fname, 'rt') as infile:
         for line in infile:
-            sentence = line.strip().split(' ')
+            sentence: List[List[str]] = line.strip().split(' ')
             n_grams = get_ngram(sentence, left_cont_len=left_max_context, right_cont_len=right_max_context)
             for n_gram in n_grams:
                 word, left, right = n_gram
@@ -60,9 +54,9 @@ def make_context_bank(left_max_context: int, right_max_context: int, fname='shuf
                 yield word, left, right, no_subwords
 
 
-def read_frequencies(infile_name):
-    with open(infile_name) as infile:
-        for line in infile:
+def read_frequencies_and_nonwords(freq_filename, non_words_filename):
+    with open(freq_filename) as freq_file:
+        for line in freq_file:
             try:
                 word, freq = line.strip().split('\t')
                 freq = int(freq)
@@ -71,23 +65,24 @@ def read_frequencies(infile_name):
                     break
             except ValueError:
                 continue
+    with open(non_words_filename, encoding='UTF-8') as fh:
+        for elem in fh:
+            elem = elem.rstrip()
+            NON_WORDS.add(elem)
 
 
-def wirte_contexts_csv(fname, contexts):
-    with open(fname, 'w') as outfile:
-        csv_writer = csv.writer(outfile)
-        for pre, word, post in sorted(contexts):
-            csv_writer.writerow((word, ' '.join(pre), ' '.join(post)))
-
-
-def sample_contexts(left_context, right_context, group_min_size, sample_size):
+def sample_contexts(freq_filename, non_words_filename, left_context_size, right_context_size, group_min_size,
+                    sample_size):
+    if len(FREQUENCIES) == 0:
+        read_frequencies_and_nonwords(freq_filename, non_words_filename)
 
     if group_min_size > 0:
         words = set()
         conc_by_word = defaultdict(list)
         with tqdm(total=sample_size) as pbar:
             c = Counter()
-            for i, (word, left, right, no_subwords) in enumerate(make_context_bank(left_context, right_context)):
+            for i, (word, left, right, no_subwords) \
+                    in enumerate(make_context_bank(left_context_size, right_context_size)):
                 c[word] += 1
                 conc_by_word[word].append((word, left, right, no_subwords, i))
 
@@ -117,8 +112,8 @@ def sample_contexts(left_context, right_context, group_min_size, sample_size):
                 continue
             break
     else:
-        for i, (word, left, right, no_subwords) in tqdm(enumerate(make_context_bank(left_context, right_context)),
-                                                        total=sample_size):
+        for i, (word, left, right, no_subwords) \
+                in tqdm(enumerate(make_context_bank(left_context_size, right_context_size)), total=sample_size):
             yield word, left, right, no_subwords, i
             if i > sample_size:
                 break

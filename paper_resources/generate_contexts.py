@@ -1,14 +1,22 @@
+import csv
 import gzip
 import random
 
 import tqdm
 
-from paper_resources.context_bank_mimic import read_frequencies, get_ngram, wirte_contexts_csv
+from paper_resources.context_bank_mimic import read_frequencies_and_nonwords, get_ngram
+
+
+def wirte_contexts_csv(fname, contexts):
+    with open(fname, 'w') as outfile:
+        csv_writer = csv.writer(outfile)
+        for pre, word, post in sorted(contexts):
+            csv_writer.writerow((word, ' '.join(pre), ' '.join(post)))
 
 
 def main():
     random.seed(42069)
-    read_frequencies('../resources/webcorp_2_freqs.tsv')
+    read_frequencies_and_nonwords('../resources/webcorp_2_freqs.tsv', 'non_words.txt')
 
     contexts = []
     with gzip.open('filter_final.txt.gz', 'rt') as infile:
