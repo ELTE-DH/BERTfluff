@@ -76,6 +76,7 @@ def sample_contexts(freq_filename, non_words_filename, left_context_size, right_
     if len(FREQUENCIES) == 0:
         read_frequencies_and_nonwords(freq_filename, non_words_filename)
 
+    # TODO this is broken - it should only yield 1 long list of group_min long lists, not group_min long seperate ones
     if group_min_size > 0:
         words = set()
         conc_by_word = defaultdict(list)
@@ -113,7 +114,7 @@ def sample_contexts(freq_filename, non_words_filename, left_context_size, right_
             break
     else:
         for i, (word, left, right, no_subwords) \
-                in tqdm(enumerate(make_context_bank(left_context_size, right_context_size)), total=sample_size):
+                in tqdm(enumerate(make_context_bank(left_context_size, right_context_size), start=1), total=sample_size):
             yield word, left, right, no_subwords, i
-            if i > sample_size:
+            if i >= sample_size:
                 break

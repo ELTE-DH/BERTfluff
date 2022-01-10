@@ -1,14 +1,14 @@
 from itertools import repeat
 from multiprocessing import Pool
-from typing import Tuple, Callable, Generator, List, Dict
+from typing import Tuple, Callable, Generator, List, Dict, Any
 
 import requests
 from tqdm import tqdm
 
 
 def exec_fun_for_contexts(contexts: List[Tuple[str, Tuple[str], Tuple[str], int, int]],
-                          boilerplate: Tuple[Callable[[Tuple[str], Tuple[str]], Generator[Tuple[str, str], None, None]],
-                                             bool, bool, str, Tuple[str, ...]], n_jobs: int):
+                          boilerplate: Tuple[Callable[[Tuple[str], Tuple[str], str], Generator[Tuple[str, str], None, None]],
+                                             bool, bool, str, Tuple[str, str], str], n_jobs: int):
     """Prepares data for multiprocessing and hands to a remote server.
 
     :param contexts:  A list of tuples, where each tuple is a context (middle, left, right words, number of subwords,
@@ -19,9 +19,9 @@ def exec_fun_for_contexts(contexts: List[Tuple[str, Tuple[str], Tuple[str], int,
     :return: A dictionary containing all data that can be used to recreate the experiment.
     """
     contexts_w_boilerplate = ((word, left, right, no_subwords, i,
-                               tactic_fun, store_previous, multi_guess, server_addr, guesser_names)
+                               tactic_fun, store_previous, multi_guess, server_addr, guesser_names, tactics)
                               for (word, left, right, no_subwords, i),
-                                  (tactic_fun, store_previous, multi_guess, server_addr, guesser_names)
+                                  (tactic_fun, store_previous, multi_guess, server_addr, guesser_names, tactics)
                               in zip(contexts, repeat(boilerplate)))
     if n_jobs == 1:
         results = [context_length_measurement(context) for context in contexts_w_boilerplate]
@@ -33,8 +33,8 @@ def exec_fun_for_contexts(contexts: List[Tuple[str, Tuple[str], Tuple[str], int,
 
 
 def context_length_measurement(args: Tuple[str, Tuple[str], Tuple[str], int, int,
-                                           Callable[[Tuple[str], Tuple[str]], Generator[Tuple[str, str], None, None]],
-                                           bool, bool, str, Tuple[str, ...]]):
+                                           Callable[[Tuple[str], Tuple[str], str], Generator[Tuple[str, str], None, None]],
+                                           bool, bool, str, Tuple[str, str], str]):
     """Runs one experiment on a concordance.
 
     :param args: Tuple: word, left_context, right_context, no_subwords, line index, tactics function, store_previous,
@@ -42,7 +42,7 @@ def context_length_measurement(args: Tuple[str, Tuple[str], Tuple[str], int, int
     :return:
     """
     word, left_context, right_context, no_subwords, index, tactic_fun, store_previous, multi_guess, server_addr, \
-    guesser_names = args
+    guesser_names, tactics = args
 
     guessers = {}
     # this dictionary gets loaded up with results in the `guess_w_guessers` function
@@ -55,7 +55,7 @@ def context_length_measurement(args: Tuple[str, Tuple[str], Tuple[str], int, int
 
     left_prev_contexts: List[str] = []
     right_prev_contexts: List[str] = []
-    for i, left, right in tactic_fun(left_context, right_context):
+    for i, left, right in tactic_fun(left_context, right_context, tactics):
         context_need = guess_w_guessers(word, left, right, no_subwords, i, store_previous, multi_guess, server_addr,
                                         left_prev_contexts, right_prev_contexts, guessers)
 
@@ -73,7 +73,7 @@ def context_length_measurement(args: Tuple[str, Tuple[str], Tuple[str], int, int
 
 def guess_w_guessers(word: str, left: str, right: str, no_subwords: int, i: int, store_previous: bool,
                      multi_guess: bool, server_addr: str, left_prev_contexts: List[str], right_prev_contexts: List[str],
-                     guessers: Dict[str, ...]) -> List[int]:
+                     guessers: Dict[str, Any]) -> List[int]:
     """Runs a guess through the REST API. Modifies `guessers` in place: loads it up with the guesses.
 
     :param word: The missing word.

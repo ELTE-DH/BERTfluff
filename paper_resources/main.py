@@ -1,11 +1,10 @@
-
-from json import dump as json_dump
 from argparse import ArgumentParser
+from json import dump as json_dump
 from random import seed as random_seed
 
-from paper_resources.guesser_comparator import exec_fun_for_contexts
 from paper_resources.context_bank_mimic import sample_contexts
-from paper_resources.tactics import both_side, both_side_conc, tactic_conc, one_left_one_right
+from paper_resources.guesser_comparator import exec_fun_for_contexts
+from paper_resources.tactics import complex_tactic
 
 
 def main():
@@ -18,7 +17,7 @@ def main():
     right_context_size: int = args['right_context_size']
     group_min: int = args['multi_concord']
     n_jobs: int = args['n_jobs']
-    side: str = args['side']
+    tactic: str = args['tactic']
     stored_rand_seed: int = args['random_seed']
     freq_filename: str = args['freq_filename']
     non_words_filename: str = args['non_words']
@@ -27,32 +26,19 @@ def main():
 
     # TODO ??? Comment!
     con_size = max(left_context_size, right_context_size)
-    if side == 'both':
-        tactic = side
-    else:
-        rep = max(side.count('l'), side.count('r'))
-        tactic = (con_size // rep) * side
 
-    print(f'Full tactic is {tactic}')
+    rep = max(tactic.count('l'), tactic.count('r'))
+    full_tactic = '|'.join((con_size // rep) * [tactic])
 
-    # TODO Comment!
-    if tactic == 'both':
-        if group_min > 0:
-            tactic_fun = both_side_conc
-        else:
-            tactic_fun = both_side
-    else:
-        if group_min > 0:
-            tactic_fun = tactic_conc
-        else:
-            tactic_fun = one_left_one_right
+    print(f'Full tactic is {full_tactic}')
 
-    contexts = sample_contexts(freq_filename, non_words_filename, left_context_size, right_context_size, group_min,
-                               sample_size)
+    contexts = list(sample_contexts(freq_filename, non_words_filename, left_context_size, right_context_size, group_min,
+                                    sample_size))
 
-    print(f'Number of contexts: {len(contexts)}')
+    # print(f'Number of contexts: {len(contexts)}')
 
-    boilerplate_for_contexts = (tactic_fun, store_previous, multi_guess, server_addr, ('bert', 'kenlm'))
+    boilerplate_for_contexts = (complex_tactic, store_previous, multi_guess, server_addr, ('bert', 'kenlm'),
+                                full_tactic)
     results = exec_fun_for_contexts(contexts, boilerplate_for_contexts, n_jobs)
 
     with open(f'{tactic}_context_{sample_size}_multi_{group_min}.json', 'w') as outfile:
@@ -64,7 +50,7 @@ def parse_args():
     parser = ArgumentParser()
     parser.add_argument('--left-context_size', type=int, required=True)
     parser.add_argument('--right-context_size', type=int, required=True)
-    parser.add_argument('--side', type=str, required=True)
+    parser.add_argument('--tactic', type=str, required=True)
     parser.add_argument('--sample_size', type=int, required=True)
     parser.add_argument('--n_jobs', type=int, default=64)
     parser.add_argument('--store_previous', action='store_true')
