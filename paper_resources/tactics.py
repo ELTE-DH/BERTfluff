@@ -21,3 +21,17 @@ def complex_tactic(left_context: Tuple[str], right_context: Tuple[str], tactic: 
         left = ' '.join(left_context[-left_size:]) if left_size else ''
         yield i, left, right
 
+
+def multi_guess_tactic(left_context: Tuple[str], right_context: Tuple[str], tactic: str) \
+        -> Generator[Tuple[str, str], None, None]:
+    """
+    Takes care of the multi-context guesses. The inner state is kept with the `guess_w_guesser` function in the
+    `guesser_comparator` module. Warning: this has a different signature than the rest of the tactics! The `left_context`
+    and `right_context` variables contain entire left-right contexts. This is a hack.
+    :param left_context: Tuple of left contexts.
+    :param right_context: Tuple of right contexts.
+    :param tactic: Unused.
+    :return:
+    """
+    for i, (left, right) in enumerate(zip(left_context, right_context)):
+        yield i, left, right

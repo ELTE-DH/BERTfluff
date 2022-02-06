@@ -14,7 +14,6 @@ FREQUENCIES = collections.defaultdict(int)
 FREQ_LOWER_LIMIT = 100
 NON_WORDS = set()
 
-
 os.environ['TOKENIZERS_PARALLELISM'] = 'false'
 
 
@@ -91,7 +90,7 @@ def sample_contexts(freq_filename, non_words_filename, left_context_size, right_
                     no_concordances = 0
                     words = set()
                     for no_concordances, (curr_word, size_of_concordance) in enumerate(c.most_common()):
-                        if size_of_concordance <= group_min_size or no_concordances >= sample_size:
+                        if size_of_concordance < group_min_size or no_concordances >= sample_size:
                             break
                         words.add(curr_word)
                     else:
@@ -101,20 +100,28 @@ def sample_contexts(freq_filename, non_words_filename, left_context_size, right_
                     if no_concordances >= sample_size:
                         break
 
-        n = 0
-        for curr_word in words:
-            for curr_conc in conc_by_word[curr_word][:10]:
-                yield curr_conc
-                n += 1
-                # TODO feljebb még a conc mondta meg, hogy mennyi a sample nem a context!
-                if n >= sample_size:
-                    break
-            else:
-                continue
-            break
+        for n, curr_word in enumerate(words):
+            # HACK here
+            # We need a tuple of strings where one string is one entire context, not just a word
+            # This way, we _hack_ it into the API - the multi_concord tactic accounts for this and returns the
+            # contexts unchanged.
+            # current group is a 5-tuple
+            current_group = conc_by_word[curr_word][:group_min_size]
+            word = current_group[0][0]
+            left_contexts = tuple([' '.join(context[1]) for context in current_group])
+            right_contexts = tuple([' '.join(context[2]) for context in current_group])
+            no_subwords = current_group[0][3]
+            i = current_group[0][4]
+
+            yield word, left_contexts, right_contexts, no_subwords, i
+
+            if n >= sample_size:
+                break
+
     else:
         for i, (word, left, right, no_subwords) \
-                in tqdm(enumerate(make_context_bank(left_context_size, right_context_size), start=1), total=sample_size):
+                in tqdm(enumerate(make_context_bank(left_context_size, right_context_size), start=1),
+                        total=sample_size):
             yield word, left, right, no_subwords, i
             if i >= sample_size:
                 break

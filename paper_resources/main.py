@@ -4,7 +4,7 @@ from random import seed as random_seed
 
 from paper_resources.context_bank_mimic import sample_contexts
 from paper_resources.guesser_comparator import exec_fun_for_contexts
-from paper_resources.tactics import complex_tactic
+from paper_resources.tactics import complex_tactic, multi_guess_tactic
 
 
 def main():
@@ -37,7 +37,12 @@ def main():
 
     # print(f'Number of contexts: {len(contexts)}')
 
-    boilerplate_for_contexts = (complex_tactic, store_previous, multi_guess, server_addr, ('bert', 'kenlm'),
+    if args['multi_guess']:
+        tactic_func = multi_guess_tactic
+    else:
+        tactic_func = complex_tactic
+
+    boilerplate_for_contexts = (tactic_func, store_previous, multi_guess, server_addr, ('bert', 'kenlm'),
                                 full_tactic)
     results = exec_fun_for_contexts(contexts, boilerplate_for_contexts, n_jobs)
 
