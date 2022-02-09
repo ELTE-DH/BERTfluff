@@ -76,7 +76,7 @@ def sample_contexts(freq_filename, non_words_filename, left_context_size, right_
         read_frequencies_and_nonwords(freq_filename, non_words_filename)
 
     # TODO this is broken - it should only yield 1 long list of group_min long lists, not group_min long seperate ones
-    if group_min_size > 0:
+    if group_min_size > 0:  # TODO Shouldn't this be > 1?
         words = set()
         conc_by_word = defaultdict(list)
         with tqdm(total=sample_size) as pbar:
@@ -107,11 +107,9 @@ def sample_contexts(freq_filename, non_words_filename, left_context_size, right_
             # contexts unchanged.
             # current group is a 5-tuple
             current_group = conc_by_word[curr_word][:group_min_size]
-            word = current_group[0][0]
-            left_contexts = tuple([' '.join(context[1]) for context in current_group])
-            right_contexts = tuple([' '.join(context[2]) for context in current_group])
-            no_subwords = current_group[0][3]
-            i = current_group[0][4]
+            word, _, _, no_subwords, i = current_group[0]
+            left_contexts = tuple(' '.join(context[1]) for context in current_group)
+            right_contexts = tuple(' '.join(context[2]) for context in current_group)
 
             yield word, left_contexts, right_contexts, no_subwords, i
 
@@ -122,6 +120,8 @@ def sample_contexts(freq_filename, non_words_filename, left_context_size, right_
         for i, (word, left, right, no_subwords) \
                 in tqdm(enumerate(make_context_bank(left_context_size, right_context_size), start=1),
                         total=sample_size):
+            # TODO Shouldn't this return tuples also for uniform return types of the two branches in the if clause?
+            #  e.g. yield word, (left,), (right,), no_subwords, i
             yield word, left, right, no_subwords, i
             if i >= sample_size:
                 break

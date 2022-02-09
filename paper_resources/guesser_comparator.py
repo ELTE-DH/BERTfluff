@@ -7,7 +7,8 @@ from tqdm import tqdm
 
 
 def exec_fun_for_contexts(contexts: List[Tuple[str, Tuple[str], Tuple[str], int, int]],
-                          boilerplate: Tuple[Callable[[Tuple[str], Tuple[str], str], Generator[Tuple[str, str], None, None]],
+                          boilerplate: Tuple[Callable[[Tuple[str], Tuple[str], str],
+                                                      Generator[Tuple[str, str], None, None]],
                                              bool, bool, str, Tuple[str, str], str], n_jobs: int):
     """Prepares data for multiprocessing and hands to a remote server.
 
@@ -33,7 +34,8 @@ def exec_fun_for_contexts(contexts: List[Tuple[str, Tuple[str], Tuple[str], int,
 
 
 def context_length_measurement(args: Tuple[str, Tuple[str], Tuple[str], int, int,
-                                           Callable[[Tuple[str], Tuple[str], str], Generator[Tuple[str, str], None, None]],
+                                           Callable[[Tuple[str], Tuple[str], str],
+                                                    Generator[Tuple[str, str], None, None]],
                                            bool, bool, str, Tuple[str, str], str]):
     """Runs one experiment on a concordance.
 
@@ -42,10 +44,10 @@ def context_length_measurement(args: Tuple[str, Tuple[str], Tuple[str], int, int
     :return:
     """
     word, left_context, right_context, no_subwords, index, tactic_fun, store_previous, multi_guess, server_addr, \
-    guesser_names, tactics = args
+        guesser_names, tactics = args
 
     guessers = {}
-    # this dictionary gets loaded up with results in the `guess_w_guessers` function
+    # This dictionary gets loaded up with results in the `guess_w_guessers` function
     for guesser_name in guesser_names:
         guessers[guesser_name] = {
             'guess': -1,  # How long context each model needs

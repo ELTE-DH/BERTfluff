@@ -33,7 +33,7 @@ class GensimGuesser:
         fixed_contexts = [list(chain(left, right)) for left, _, right in contexts]
 
         # We build the initial wordlist from the first guess
-        # TODO 1_000_000 volt ígérve! Magyarázat?
+        # TODO 1_000_000 was somewhere! Explanation?
         init_probabilities = {word: prob for word, prob in self.model.predict_output_word(fixed_contexts[0], 10_000)
                               if len(word) == word_length and (word not in previous_guesses or retry_wrong)}
 

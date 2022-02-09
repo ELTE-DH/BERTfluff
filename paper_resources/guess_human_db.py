@@ -11,13 +11,14 @@ from tqdm import tqdm
 def guess_wrapper(args):
 
     server_addr, guesser_name, word, left_context, right_context, no_subwords, previous_guesses, id_ = args
-    results = guess_rest_api(server_addr, guesser_name, word, left_context, right_context, no_subwords, previous_guesses)
+    results = guess_rest_api(server_addr, guesser_name, word, left_context, right_context, no_subwords,
+                             previous_guesses)
     return id_, guesser_name, word, left_context, right_context, no_subwords, results
 
 
 def main():
     tokenizer = BertTokenizer.from_pretrained('SZTAKI-HLT/hubert-base-cc')
-    con = sqlite3.connect('/home/levaid/Projects/word-guessing-game/webcorpus1_conts.db')
+    con = sqlite3.connect('webcorpus1_conts.db')
     cur = con.cursor()
     parallel_data = []
     for row in cur.execute('select id, left, word, right, freq, sent from lines'):
@@ -29,8 +30,7 @@ def main():
     n_jobs = 96
     # guess_rest_api(*parallel_data[0])
     with Pool(processes=n_jobs) as pool:
-        results = list(tqdm(pool.imap_unordered(guess_wrapper, parallel_data),
-                            total=len(parallel_data)))
+        results = list(tqdm(pool.imap_unordered(guess_wrapper, parallel_data), total=len(parallel_data)))
 
     with open('human_vs_machine.json', 'w') as outfile:
         json_dump(results, outfile, ensure_ascii=False)

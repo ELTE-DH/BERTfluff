@@ -24,7 +24,7 @@ def main():
 
     random_seed(stored_rand_seed)  # restore random seed
 
-    # TODO ??? Comment!
+    # TODO ??? Comment! Example!
     con_size = max(left_context_size, right_context_size)
 
     rep = max(tactic.count('l'), tactic.count('r'))
@@ -42,8 +42,7 @@ def main():
     else:
         tactic_func = complex_tactic
 
-    boilerplate_for_contexts = (tactic_func, store_previous, multi_guess, server_addr, ('bert', 'kenlm'),
-                                full_tactic)
+    boilerplate_for_contexts = (tactic_func, store_previous, multi_guess, server_addr, ('bert', 'kenlm'), full_tactic)
     results = exec_fun_for_contexts(contexts, boilerplate_for_contexts, n_jobs)
 
     with open(f'{tactic}_context_{sample_size}_multi_{group_min}.json', 'w') as outfile:
@@ -60,7 +59,8 @@ def parse_args():
     parser.add_argument('--n_jobs', type=int, default=64)
     parser.add_argument('--store_previous', action='store_true')
     parser.add_argument('--multi_guess', action='store_true')
-    parser.add_argument('--multi_concord', type=int, default=0)
+    parser.add_argument('--multi_concord', type=int, default=0,
+                        help='The number of contexts for every word in the concordance')
     parser.add_argument('--server-addr', type=str, default='http://127.0.0.1:8000')
     parser.add_argument('--random-seed', type=int, default=42069)
     parser.add_argument('--freq-filename', type=str, default='../resources/webcorp_2_freqs.tsv', required=True)
