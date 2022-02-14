@@ -24,10 +24,11 @@ def main():
 
     random_seed(stored_rand_seed)  # restore random seed
 
-    # TODO ??? Comment! Example!
+    # the bigger context size is used as max context size
     con_size = max(left_context_size, right_context_size)
-
+    # there is a maximum number of new left or right words per 'round'
     rep = max(tactic.count('l'), tactic.count('r'))
+    # the number of rounds is given by dividing the max context size by the maximum tactic size
     full_tactic = '|'.join((con_size // rep) * [tactic])
 
     print(f'Full tactic is {full_tactic}')
