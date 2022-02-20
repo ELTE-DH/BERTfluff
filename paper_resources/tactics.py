@@ -1,17 +1,6 @@
 from typing import Tuple, Generator
 
 
-# TODO tactics input parameter? Does this needed or complex_tactic can simulate this behaviour?
-def both_side(left_context: Tuple[str], right_context: Tuple[str]) -> Generator[Tuple[str, str], None, None]:
-    """Increment both side word-by-word starting by one until the sorter side runs out of words"""
-    # TODO rewrite to match the input of multi_guess_tactic (tuple of contexts != tuple of words)
-    left_context_rev = list(reversed(left_context))
-    min_len = min(len(left_context), len(right_context))
-    for i in range(1, min_len):
-        left, right = left_context_rev[:i], right_context[:i]
-        yield i, ' '.join(reversed(left)), ' '.join(right)
-
-
 def complex_tactic(left_context: Tuple[str], right_context: Tuple[str], tactic: str) \
         -> Generator[Tuple[str, str], None, None]:
     # TODO rewrite to match the input of multi_guess_tactic (tuple of contexts != tuple of words)

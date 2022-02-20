@@ -21,7 +21,7 @@ def _n_gram_iter(input_iterator, n):
     return zip(*(islice(it, i, None) for i, it in enumerate(tee(iter(input_iterator), n))))
 
 
-def get_ngram(sentence: List[List[str]], word_min_len=6, word_max_len=15,
+def get_ngram(sentence: List[str], word_min_len=6, word_max_len=15,
               left_cont_len=5, right_cont_len=5) -> List[Tuple[str, Tuple[str], Tuple[str]]]:
     if left_cont_len == 0 and right_cont_len == 0:
         return []
@@ -45,7 +45,7 @@ def make_context_bank(left_max_context: int, right_max_context: int, fname='shuf
     tokenizer = AutoTokenizer.from_pretrained(tokenizer_model)
     with gzip.open(fname, 'rt') as infile:
         for line in infile:
-            sentence: List[List[str]] = line.strip().split(' ')
+            sentence: List[str] = line.strip().split(' ')
             n_grams = get_ngram(sentence, left_cont_len=left_max_context, right_cont_len=right_max_context)
             for n_gram in n_grams:
                 word, left, right = n_gram

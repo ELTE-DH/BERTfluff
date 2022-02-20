@@ -53,13 +53,20 @@ def main():
 
 def parse_args():
     parser = ArgumentParser()
-    parser.add_argument('--left-context_size', type=int, required=True)
-    parser.add_argument('--right-context_size', type=int, required=True)
-    parser.add_argument('--tactic', type=str, required=True)
-    parser.add_argument('--sample_size', type=int, required=True)
-    parser.add_argument('--n_jobs', type=int, default=64)
-    parser.add_argument('--store_previous', action='store_true')
-    parser.add_argument('--multi_guess', action='store_true')
+    parser.add_argument('--left-context_size', type=int, required=True, help='Size of the left context.')
+    parser.add_argument('--right-context_size', type=int, required=True, help='Size of the right context.')
+    parser.add_argument('--tactic', type=str, required=True,
+                        help='You can specify actions taken in a round, e.g. lrr means that the context grows with one'
+                             'word to the left, two to the right.')
+    parser.add_argument('--sample_size', type=int, required=True, help='Number of experiments to run.')
+    parser.add_argument('--n_jobs', type=int, default=64, help='Number of contexts to send parallel to the server.')
+    parser.add_argument('--store_previous', action='store_true',
+                        help='If true, previous guesses are not guessed again.')
+    parser.add_argument('--multi_guess', action='store_true',
+                        help='Changes between increasing size contexts and multi contexts. If false, the experiments '
+                             'are ran with growing contexts (which is controlled with the tactic argument), if true, '
+                             'the experiment is ran with multiple different contexts for a KWIC, which is controlled '
+                             'with the multi-concord argument.')
     parser.add_argument('--multi_concord', type=int, default=0,
                         help='The number of contexts for every word in the concordance')
     parser.add_argument('--server-addr', type=str, default='http://127.0.0.1:8000')
