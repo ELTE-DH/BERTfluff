@@ -64,3 +64,35 @@ gunicorn --workers=32 --threads=1 --worker-class=gthread \
          --chdir "${PWD}/../../" -t 900 -b 127.0.0.1:42069 \
          "flaskapp:create_app()" 
 ```
+
+# References
+
+Ha ezt a programot használja, kérjük, hivatkozzon a következő cikkekre:
+
+[Indig, B. and Lévai, D. (2022). __Okosabb vagy, mint egy XXXXXXXX? – egy nyelvi játéktól a nyelvmodellek összehasonlı́tásáig__. In Gábor Berend, et al., editors, _XVIII. Magyar Számı́tógépes Nyelvészeti Konferencia_, pages 31--44 Szeged, Hungary](https://rgai.inf.u-szeged.hu/sites/rgai.inf.u-szeged.hu/files/mszny2022.pdf)
+
+```
+@inproceedings{word-guessing-mszny2022,
+    author = {Indig, Balázs and Lévai, Dániel},
+    booktitle = {{XVIII}. {M}agyar {S}zámítógépes {N}yelvészeti {K}onferencia},
+    title = {Okosabb vagy, mint egy {XXXXXXXX}? -- Egy nyelvi játéktól a nyelvmodellek összehasonlításáig},
+    year = {2022},
+    editor = {Gábor Berend and Gábor Gosztolya and Veronika Vincze},
+    pages = {31--44},
+    orcid-numbers = {Indig, Balázs/0000-0001-8090-3661}
+}
+```
+
+[Balázs, I. and Dániel, L. (2023). __I’m Smarter than the Average BERT! – Testing Language Models Against Humans in a Word Guessing Game__. In Zygmunt Vetulani, et al., editors, _Human Language Technologies as a Challenge for Computer Science and Linguistics -- 2023_. pages 106–-110 Poznań, Poland](http://ltc.amu.edu.pl/)
+
+```
+@inproceedings{MTMT:33785196,
+	author = {Indig, Balázs and Lévai, Dániel},
+	booktitle = {Human Language Technologies as a Challenge for Computer Science and Linguistics -- 2023},
+	title = {I’m Smarter than the Average BERT! – Testing Language Models Against Humans in a Word Guessing Game},
+	year = {2023},
+    editor = {Vetulani, Zygmunt and Paroubek, Patrick and Kubis, Marek},
+	pages = {106-110},
+	orcid-numbers = {Indig, Balázs/0000-0001-8090-3661}
+}
+```
