@@ -9,12 +9,13 @@ Minden mondatból ugyanaz a szó hiányzik, mindaddig, amíg valaki ki nem talá
 
 ### Install
 
+A `make` parancs futtatásával, vagy manuálisan az alábbi módon.
+
 ```bash
 virtualenv venv
 source venv/bin/activate
 pip install -r requirements.txt
 ```
-
 
 Szükséges továbbá a Gensim magyar modell és a KenLM magyar modell:
 

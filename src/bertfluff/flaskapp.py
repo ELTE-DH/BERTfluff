@@ -14,7 +14,7 @@ def parse_positive_ints(params, expected_params):
         try:
             ret = int(params.get(name, default_value))
             if ret <= 0:
-                raise ValueError()
+                raise ValueError
         except ValueError as e:
             raise type(e)(error_message)
 
@@ -54,7 +54,7 @@ def parse_params(params):
     # Positive ints
     try:
         number_of_subwords, top_n = \
-            parse_positive_ints(params, (('no_of_subwords', None, 'no_of_subwords must be positive int!'),
+            parse_positive_ints(params, (('no_of_subwords', 0, 'no_of_subwords must be positive int!'),
                                          ('top_n', 10, 'top_n must be positive int or must be omitted (default: 10)!')))
     except ValueError as e:
         raise e
@@ -71,7 +71,7 @@ def parse_params(params):
         raise ValueError('missing_token must be a string which is an unique word in all contexts!')
 
     # List of strings can not be empty!
-    raw_contexts = params.get('contexts[]')
+    raw_contexts = params.get('contexts[]', [])
     if len(raw_contexts) == 0:
         raise ValueError('contexts must be non-empty list of context strings!')
 
@@ -113,7 +113,7 @@ def create_app():
             guesser_name, contexts, number_of_subwords, previous_guesses, retry_wrong,\
                 top_n = parse_params(data)
         except ValueError as e:
-            result = app.response_class(response=str(e), status=400, mimetype='application/json')
+            result = current_app.response_class(response=str(e), status=400, mimetype='application/json')
             return result
 
         selected_guesser = current_app.config['APP_SETTINGS']['initialised_guessers'][guesser_name]
@@ -131,12 +131,14 @@ def create_app():
             data = request.args
 
         if 'word' not in data:
-            return app.response_class(response='word must be specified!', status=400, mimetype='application/json')
+            return current_app.response_class(response='word must be specified!', status=400,
+                                              mimetype='application/json')
 
         guesser_name = data.get('guesser', '').lower()
         if guesser_name not in AVAILABLE_GUESSERS.keys():
-            return app.response_class(response=f'guesser param must be one of {set(AVAILABLE_GUESSERS.keys())} !',
-                                      status=400, mimetype='application/json')
+            return current_app.response_class(response=f'guesser param must be one of'
+                                                       f' {set(AVAILABLE_GUESSERS.keys())} !',
+                                              status=400, mimetype='application/json')
 
         selected_guesser = current_app.config['APP_SETTINGS']['initialised_guessers'][guesser_name]
         output = len(selected_guesser.split_to_subwords(data['word']))
@@ -152,16 +154,20 @@ def create_app():
             data = request.args
 
         if 'word1' not in data or 'word2' not in data:
-            return app.response_class(response='word1 and word2 must be specified!', status=400,
-                                      mimetype='application/json')
+            return current_app.response_class(response='word1 and word2 must be specified!', status=400,
+                                              mimetype='application/json')
 
         guesser_name = data.get('guesser', '').lower()
         if guesser_name not in AVAILABLE_GUESSERS.keys():
-            return app.response_class(response=f'guesser param must be one of {set(AVAILABLE_GUESSERS.keys())} !',
-                                      status=400, mimetype='application/json')
+            return current_app.response_class(response=f'guesser param must be one of'
+                                                       f' {set(AVAILABLE_GUESSERS.keys())} !',
+                                              status=400, mimetype='application/json')
 
         selected_guesser = current_app.config['APP_SETTINGS']['initialised_guessers'][guesser_name]
-        output = selected_guesser.word_similarity(data['word1'], data['word2'])
+        try:
+            output = selected_guesser.word_similarity(data['word1'], data['word2'])
+        except KeyError:
+            output = -1
 
         return {'word_similarity': str(output)}
 
